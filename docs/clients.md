@@ -83,6 +83,37 @@ changing the default model; `--model <id>` pins the default. Routes are
 declared text-only — add `input: [text, image]` to a model entry under
 `freellmapi.models` to send it images. `DSH_HOME` is honoured when set.
 
+**Running DSH in Docker** (e.g. the community `alliot/deepseek-harness`
+image): run `setup-dsh` first so `$DSH_HOME/settings.yaml` and `.env` exist,
+then bind-mount that same directory into the container instead of a
+named volume — a fresh named volume starts with no `settings.yaml` or
+`.env` in it, so the container starts with none of the routes `setup-dsh`
+wrote:
+
+```bash
+npx freellmapi setup-dsh --url http://host.docker.internal:3001 --api-key <unified-key>
+
+docker run --rm -it \
+  --name deepseek-harness \
+  --security-opt no-new-privileges=true \
+  --cap-drop ALL \
+  --add-host host.docker.internal:host-gateway \
+  -p 127.0.0.1:3080:3080 \
+  -v ~/.dsh:/home/node/.dsh \
+  -v "/path/to/your/vault:/workspace" \
+  alliot/deepseek-harness:0.1.0-rc.6.2
+```
+
+`--add-host host.docker.internal:host-gateway` is only needed on plain Linux
+Docker (Docker Desktop already provides it) so the container can reach
+FreeLLMAPI on the host — point `setup-dsh --url` at the same
+host-reachable address before generating settings, not at `localhost`,
+which inside the container means the container itself. If `DSH_HOME` points
+somewhere other than `~/.dsh`, mount that path instead. `DEEPSEEK_API_KEY`
+in the container environment only feeds DSH's own bundled DeepSeek
+provider — the `freellmapi` route reads its key from `$DSH_HOME/.env`
+(`apiKeyEnv: FREELLMAPI_API_KEY`), so it needs no entry in the container env.
+
 ### MiMo Code (`mimo`)
 
 [MiMo Code](https://mimo.xiaomi.com/mimocode) is an OpenCode derivative, so it
