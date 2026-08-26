@@ -506,7 +506,7 @@ function dsh(ctx: GenerateContext): Generation {
     ],
     notes: [
       `Start DeepSeek Harness with: npx @deepseek-ai/dsh web — ${route}/${model.id} is ${ctx.profile === 'default' ? 'the default model' : 'in the model picker'}.`,
-      `Running the alliot/deepseek-harness Docker image instead? Bind-mount ${home} itself (e.g. \`-v ${home}:/home/node/.dsh\`) rather than a named volume, or the container starts from an empty settings file; on plain Linux Docker add \`--add-host host.docker.internal:host-gateway\` and point --url at http://host.docker.internal:<port> so the container can reach this server.`,
+      `Running the alliot/deepseek-harness Docker image instead? Bind-mount ${home} itself (e.g. \`-v "${home}:/home/node/.dsh"\`) rather than a named volume, or the container starts with no settings.yaml/.env at all; on plain Linux Docker add \`--add-host host.docker.internal:host-gateway\` and re-run \`setup-dsh --url http://host.docker.internal:<port>\` (not localhost) so the container can reach this server.`,
       'Settings are hot-reloaded, so a running dsh picks this up on its next request.',
       `Models are declared text-only; give a vision model \`input: [text, image]\` under ${route}.models in settings.yaml to send it images.`,
     ],

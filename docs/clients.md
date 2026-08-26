@@ -85,9 +85,10 @@ declared text-only — add `input: [text, image]` to a model entry under
 
 **Running DSH in Docker** (e.g. the community `alliot/deepseek-harness`
 image): run `setup-dsh` first so `$DSH_HOME/settings.yaml` and `.env` exist,
-then bind-mount that same directory into the container instead of an
-anonymous named volume — a fresh named volume has no `settings.yaml` in it,
-so the container starts with none of the routes `setup-dsh` wrote:
+then bind-mount that same directory into the container instead of a
+named volume — a fresh named volume starts with no `settings.yaml` or
+`.env` in it, so the container starts with none of the routes `setup-dsh`
+wrote:
 
 ```bash
 npx freellmapi setup-dsh --url http://host.docker.internal:3001 --api-key <unified-key>
