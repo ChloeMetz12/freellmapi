@@ -89,6 +89,28 @@ confirm during discovery whether they need different handling). Replace
 every placeholder in `src/config/selectors.ts` with what you find — that
 file is the single place org-specific UI strings live.
 
+## Watching a run without a real display (no live VNC available)
+
+There's no physical monitor on the virtual display, and — if you're running
+this from inside a sandboxed remote session like Claude Code on the web —
+there's typically no way to expose a live VNC/remote-desktop stream to your
+browser from that environment either. Instead, every screenshot capture
+(`src/logging/screenshots.ts`) prints a marker line to stdout:
+
+```
+SCREENSHOT:/absolute/path/to/runs/<run-id>/<step>.png
+```
+
+Whoever launches the CLI or MCP server can tail stdout for these lines and
+surface each screenshot as soon as it's written — e.g. a Claude session
+running the tool for you can watch its own process output and post each
+screenshot back into your conversation as the run progresses, giving you a
+step-by-step (if not perfectly live) view of what's happening. This applies
+to normal `add-project` runs; it does **not** cover the one-time
+`npm run login` step (see above) — that step should be done somewhere you
+already have a real display, specifically so your Salesforce credentials
+never have to be typed into a chat session.
+
 ## No sandbox — testing happens carefully against production
 
 There is no Salesforce sandbox available, so `dry-run` mode (the default)
