@@ -11,6 +11,8 @@
     "build": "tsc",
     "test": "vitest run",
     "login": "tsx src/auth/login.ts",
+    "login:assisted:start": "tsx scripts/start-assisted-login.ts",
+    "login:assisted:action": "tsx scripts/login-action.ts",
     "mcp": "tsx src/mcp/server.ts",
     "cli": "tsx src/cli/index.ts"
   },
