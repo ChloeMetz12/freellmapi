@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Playwright auth session — never commit a live Salesforce session
+auth/
+
+# Per-run logs, screenshots, and audit manifests
+runs/
+
+.env
+.env.local
