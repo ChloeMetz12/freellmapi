@@ -111,6 +111,20 @@ to normal `add-project` runs; it does **not** cover the one-time
 already have a real display, specifically so your Salesforce credentials
 never have to be typed into a chat session.
 
+**Network policy note:** some sandboxed remote sessions (e.g. Claude Code
+on the web, depending on how the environment was configured) block outbound
+connections to arbitrary internet hosts, including `*.salesforce.com`,
+entirely at the network policy level — not just as a proxy/certificate
+issue. `scripts/start-assisted-login.ts` and `scripts/login-action.ts` exist
+to help drive the one-time login step from such a session when a real
+display or VNC access isn't available, but if the session's network policy
+denies Salesforce outright (a proxy returning 403 on the CONNECT to
+`login.salesforce.com`, in an environment using this kind of policy-enforcing
+egress proxy), no browser automation trick works around that — the
+discovery phase, login, and every live run need to happen somewhere with
+actual network access to your Salesforce org (your own machine, or a remote
+environment whose network policy allows it).
+
 ## No sandbox — testing happens carefully against production
 
 There is no Salesforce sandbox available, so `dry-run` mode (the default)

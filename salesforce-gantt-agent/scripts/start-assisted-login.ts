@@ -16,31 +16,54 @@
  *   tsx scripts/login-action.ts save
  */
 import { chromium } from "playwright";
+import { existsSync } from "node:fs";
 import { loadEnv } from "../src/config/env.js";
-import { startVirtualDisplay } from "../src/display/virtualDisplay.js";
+import { startVirtualDisplay, type VirtualDisplay } from "../src/display/virtualDisplay.js";
 
 export const CDP_PORT = 9333;
 
+/**
+ * Some sandboxed environments pre-install a Chromium build outside
+ * Playwright's normal managed location (and block downloading another one).
+ * Prefer that pre-installed build when present; otherwise fall back to
+ * Playwright's default resolution (a normal local machine).
+ */
+function resolveExecutablePath(): string | undefined {
+  const override = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (override && existsSync(override)) return override;
+  const preinstalled = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+  if (existsSync(preinstalled)) return preinstalled;
+  return undefined;
+}
+
 async function main() {
   const env = loadEnv();
-  const virtualDisplay = await startVirtualDisplay({
-    width: env.VIRTUAL_DISPLAY_WIDTH,
-    height: env.VIRTUAL_DISPLAY_HEIGHT,
-  });
-  console.log(`Virtual display: ${virtualDisplay.display}`);
+  let virtualDisplay: VirtualDisplay | undefined;
 
-  const browser = await chromium.launch({
-    headless: false,
-    args: [`--remote-debugging-port=${CDP_PORT}`, "--remote-debugging-address=127.0.0.1"],
-  });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto(env.SF_ORG_URL);
+  try {
+    virtualDisplay = await startVirtualDisplay({
+      width: env.VIRTUAL_DISPLAY_WIDTH,
+      height: env.VIRTUAL_DISPLAY_HEIGHT,
+    });
+    console.log(`Virtual display: ${virtualDisplay.display}`);
 
-  console.log(`READY cdp=http://127.0.0.1:${CDP_PORT}`);
+    const browser = await chromium.launch({
+      headless: false,
+      executablePath: resolveExecutablePath(),
+      args: [`--remote-debugging-port=${CDP_PORT}`, "--remote-debugging-address=127.0.0.1"],
+    });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(env.SF_ORG_URL);
 
-  // Keep the process (and therefore the browser) alive until killed externally.
-  await new Promise(() => {});
+    console.log(`READY cdp=http://127.0.0.1:${CDP_PORT}`);
+
+    // Keep the process (and therefore the browser) alive until killed externally.
+    await new Promise(() => {});
+  } catch (err) {
+    virtualDisplay?.stop();
+    throw err;
+  }
 }
 
 main().catch((err) => {
