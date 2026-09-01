@@ -23,15 +23,19 @@ because the Gantt board's drag-and-drop scheduling and "Get Candidates"
 ranking have no clean, documented API equivalent to rely on.
 
 **Salesforce restricts/flags headless browser sessions.** Every run —
-`npm run login` and normal operation alike — starts a real [Xvfb](https://www.x.org/releases/X11R7.6/doc/man/man1/Xvfb.1.xhtml)
-virtual framebuffer and launches Chromium in headed mode against it
-(`headless: false`), never truly headless. This is why the host running this
-tool needs **Xvfb installed as a system dependency** — `npm install` alone
-won't provide it:
+`npm run login` and normal operation alike — launches Chromium in headed
+mode (`headless: false`), never truly headless. On Linux, where there's
+often no real display to open a window against, this means starting a real
+[Xvfb](https://www.x.org/releases/X11R7.6/doc/man/man1/Xvfb.1.xhtml) virtual
+framebuffer first — which requires **Xvfb installed as a system
+dependency** (`npm install` alone won't provide it):
 
 ```bash
 sudo apt-get install xvfb   # Debian/Ubuntu
 ```
+
+On macOS/Windows, there's already a real display, so this step is skipped
+entirely and headed Chromium just opens a normal visible window.
 
 ## Setup
 

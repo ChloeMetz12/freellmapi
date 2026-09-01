@@ -18,6 +18,13 @@ export interface VirtualDisplay {
  * (e.g. `apt-get install xvfb`) -- this is not something npm can install.
  */
 export async function startVirtualDisplay(options: { width: number; height: number }): Promise<VirtualDisplay> {
+  if (process.platform !== "linux") {
+    // Xvfb is a Linux/X11 tool and isn't installable on macOS/Windows --
+    // but those platforms already have a real display, so headed Chromium
+    // just opens a normal visible window with no DISPLAY env var involved.
+    return { display: "", stop: () => {} };
+  }
+
   if (process.env.DISPLAY && (await isDisplayLive(process.env.DISPLAY))) {
     // Already running under a real or externally-managed virtual display
     // (e.g. a dev machine, or an outer xvfb-run wrapper) -- reuse it.

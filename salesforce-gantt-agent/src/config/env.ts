@@ -1,14 +1,17 @@
 import "dotenv/config";
 import { z } from "zod";
 
+/** An unset .env var is read as "", not undefined -- treat blank the same as absent before validating. */
+const optionalEmail = z.preprocess((value) => (value === "" ? undefined : value), z.string().email().optional());
+
 const envSchema = z.object({
   SF_ORG_URL: z.string().url({ message: "SF_ORG_URL must be a valid Salesforce org URL" }),
   SF_AUTH_STATE_PATH: z.string().default("./auth/storageState.json"),
   /** Used as the Work Order's Owner/Dispatcher -- the logged-in user, per the training transcript. */
   SF_USER_DISPLAY_NAME: z.string().min(1, "SF_USER_DISPLAY_NAME is required (used as Work Order Owner/Dispatcher)"),
   MODE: z.enum(["dry-run", "live"]).default("dry-run"),
-  ESCALATION_EMAIL_TO: z.string().email().optional(),
-  ESCALATION_EMAIL_FROM: z.string().email().optional(),
+  ESCALATION_EMAIL_TO: optionalEmail,
+  ESCALATION_EMAIL_FROM: optionalEmail,
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: z.string().optional(),
