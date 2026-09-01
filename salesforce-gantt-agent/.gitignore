@@ -2,8 +2,10 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Playwright auth session — never commit a live Salesforce session
-auth/
+# Playwright auth session (SF_AUTH_STATE_PATH) — never commit a live
+# Salesforce session. Anchored to the package root so it doesn't also
+# swallow src/auth/.
+/auth/
 
 # Per-run logs, screenshots, and audit manifests
 runs/

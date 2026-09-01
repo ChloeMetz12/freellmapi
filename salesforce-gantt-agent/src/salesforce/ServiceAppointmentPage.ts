@@ -53,7 +53,10 @@ export class ServiceAppointmentPage {
         if (!topCandidate?.trim()) return { status: "no-candidates" };
         return { status: "ranked", topCandidate: topCandidate.trim() };
       },
-      { status: "no-candidates" },
+      // Dry-run: no real Get Candidates call was made, so simulate a
+      // successful ranked result -- otherwise the workflow could never
+      // exercise its Dispatched path in dry-run mode.
+      { status: "ranked", topCandidate: "Dry Run Technician" },
     );
   }
 

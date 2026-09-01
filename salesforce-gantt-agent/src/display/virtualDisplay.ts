@@ -53,6 +53,20 @@ export async function startVirtualDisplay(options: { width: number; height: numb
   };
 }
 
+/**
+ * Some sandboxed environments pre-install a Chromium build outside
+ * Playwright's normal managed location (and block downloading another one).
+ * Prefer that pre-installed build when present; otherwise fall back to
+ * Playwright's default resolution (a normal local machine).
+ */
+export function resolveChromiumExecutablePath(): string | undefined {
+  const override = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  if (override && existsSync(override)) return override;
+  const preinstalled = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+  if (existsSync(preinstalled)) return preinstalled;
+  return undefined;
+}
+
 function pickFreeDisplayNumber(): number {
   for (let n = 99; n < 199; n++) {
     if (!existsSync(`/tmp/.X${n}-lock`)) return n;
