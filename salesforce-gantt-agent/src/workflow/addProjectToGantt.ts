@@ -40,12 +40,19 @@ export async function addProjectToGantt(input: AddProjectInput, env: Env): Promi
     session = await openAuthenticatedSession(env);
   } catch (err) {
     if (err instanceof SessionExpiredError) {
-      return { type: "Failed", step: "authenticate", error: err.message };
+      const outcome: Outcome = { type: "Failed", step: "authenticate", error: err.message };
+      recorder.setOutcome(outcome);
+      await recorder.flush();
+      return outcome;
     }
     throw err;
   }
 
   const page = await session.context.newPage();
+  // A fresh page starts at about:blank, which can't be used as a base URL
+  // for the relative deep links ProjectRecordPage builds -- establish a
+  // known in-org base first.
+  await page.goto(env.SF_ORG_URL);
   const ctx: RunContext = { page, dryRun: input.dryRun, runId, runDir, logger };
 
   try {
@@ -56,12 +63,15 @@ export async function addProjectToGantt(input: AddProjectInput, env: Env): Promi
     const resolved = resolveWorkOrderFields(input, extracted, env);
     const validation = resolvedWorkOrderSchema.safeParse(resolved);
     if (!validation.success) {
-      await session.close();
-      return {
+      const outcome: Outcome = {
         type: "Failed",
         step: "resolve-work-order-fields",
         error: `Missing required fields: ${validation.error.issues.map((i) => i.path.join(".")).join(", ")}`,
       };
+      recorder.setOutcome(outcome);
+      await recorder.flush();
+      await session.close();
+      return outcome;
     }
 
     const workOrderUrl = await projectPage.createInstallWorkOrder(recorder);
@@ -127,9 +137,11 @@ export async function addProjectToGantt(input: AddProjectInput, env: Env): Promi
     await recorder.flush();
     return outcome;
   } catch (err) {
+    const outcome: Outcome = { type: "Failed", step: "add-project-to-gantt", error: (err as Error).message };
+    recorder.setOutcome(outcome);
     await recorder.flush();
     await session.close();
-    return { type: "Failed", step: "add-project-to-gantt", error: (err as Error).message };
+    return outcome;
   }
 }
 
@@ -142,9 +154,11 @@ export async function confirmDispatch(runId: string, approve: boolean): Promise<
 
   try {
     if (!approve) {
+      const outcome: Outcome = { type: "Cancelled", runId };
       run.recorder.addStep({ step: "dispatch-cancelled", startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), outcome: "ok" });
+      run.recorder.setOutcome(outcome);
       await run.recorder.flush();
-      return { type: "Cancelled", runId };
+      return outcome;
     }
 
     const dispatchPage = new DispatchConsolePage(run.ctx);
@@ -160,8 +174,10 @@ export async function confirmDispatch(runId: string, approve: boolean): Promise<
     await run.recorder.flush();
     return outcome;
   } catch (err) {
+    const outcome: Outcome = { type: "Failed", step: "confirm-dispatch", error: (err as Error).message };
+    run.recorder.setOutcome(outcome);
     await run.recorder.flush();
-    return { type: "Failed", step: "confirm-dispatch", error: (err as Error).message };
+    return outcome;
   } finally {
     await run.session.close();
   }
@@ -186,10 +202,27 @@ export function resolveWorkOrderFields(
   };
 }
 
-/** Best-effort normalization of whatever date format the project record's field renders as. Refine after the discovery phase confirms the real format. */
+/**
+ * Best-effort normalization of whatever date format the project record's
+ * field renders as. Parses known formats as plain strings -- never via
+ * `new Date()` + `toISOString()`, which applies the host's timezone and can
+ * shift the day (e.g. a locale string parsed near midnight UTC) -- since an
+ * off-by-one service date is a critical failure mode for scheduling
+ * automation. Refine once the discovery phase confirms the real format;
+ * an unrecognized format is left unset rather than risking a silently
+ * wrong date.
+ */
 function normalizeDate(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  return parsed.toISOString().slice(0, 10);
+  const trimmed = value.trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const usFormat = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (usFormat) {
+    const [, month, day, year] = usFormat;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+
+  return undefined;
 }

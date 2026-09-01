@@ -41,13 +41,23 @@ export class ServiceAppointmentPage {
           name: selectors.serviceAppointment.candidateListContainer.name,
         });
 
+        // Each branch catches its own rejection before entering the race, so
+        // whichever branch loses (and later times out) is already handled --
+        // otherwise it settles with no .catch attached and Node reports an
+        // unhandled promise rejection even though the race itself resolved.
         const result = await Promise.race([
-          noCandidates.waitFor({ state: "visible", timeout: 15000 }).then(() => "no-candidates" as const),
-          candidateList.waitFor({ state: "visible", timeout: 15000 }).then(() => "ranked" as const),
-        ]).catch(() => "error" as const);
+          noCandidates
+            .waitFor({ state: "visible", timeout: 15000 })
+            .then(() => "no-candidates" as const)
+            .catch(() => "timeout" as const),
+          candidateList
+            .waitFor({ state: "visible", timeout: 15000 })
+            .then(() => "ranked" as const)
+            .catch(() => "timeout" as const),
+        ]);
 
         if (result === "no-candidates") return { status: "no-candidates" };
-        if (result === "error") return { status: "error", message: "Get Candidates did not return a recognizable result within 15s" };
+        if (result === "timeout") return { status: "error", message: "Get Candidates did not return a recognizable result within 15s" };
 
         const topCandidate = await candidateList.getByRole(selectors.serviceAppointment.candidateListItem.role).first().textContent();
         if (!topCandidate?.trim()) return { status: "no-candidates" };

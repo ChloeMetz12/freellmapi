@@ -26,24 +26,53 @@ export async function startVirtualDisplay(options: { width: number; height: numb
   const displayNumber = pickFreeDisplayNumber();
   const display = `:${displayNumber}`;
 
-  let proc: ChildProcess;
-  try {
-    proc = spawn("Xvfb", [display, "-screen", "0", `${options.width}x${options.height}x24`, "-nolisten", "tcp"], {
-      stdio: "ignore",
-    });
-  } catch (err) {
-    throw new Error(
-      `Failed to start Xvfb (virtual display). Salesforce requires a headed browser, so Xvfb must be installed ` +
-        `as a system dependency (e.g. "sudo apt-get install xvfb"). Original error: ${(err as Error).message}`,
-    );
-  }
-
-  proc.on("error", (err) => {
-    throw new Error(`Xvfb process error: ${err.message}. Is Xvfb installed on this host?`);
+  // spawn() does not throw synchronously for a missing binary (ENOENT) --
+  // that surfaces asynchronously as an "error" event. Wait for either the
+  // display becoming ready or that event, and kill the process on any
+  // failure path (including waitForDisplay's own timeout) so it doesn't
+  // linger as an orphan.
+  const proc: ChildProcess = spawn("Xvfb", [display, "-screen", "0", `${options.width}x${options.height}x24`, "-nolisten", "tcp"], {
+    stdio: "ignore",
   });
 
-  await waitForDisplay(display);
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+
+    const onSpawnError = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(
+        new Error(
+          `Failed to start Xvfb (virtual display). Salesforce requires a headed browser, so Xvfb must be installed ` +
+            `as a system dependency (e.g. "sudo apt-get install xvfb"). Original error: ${err.message}`,
+        ),
+      );
+    };
+    proc.once("error", onSpawnError);
+
+    waitForDisplay(display)
+      .then(() => {
+        if (settled) return;
+        settled = true;
+        proc.off("error", onSpawnError);
+        resolve();
+      })
+      .catch((err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      });
+  }).catch((err) => {
+    proc.kill();
+    throw err;
+  });
+
   process.env.DISPLAY = display;
+  // Prevent an uncaught exception if Xvfb dies after a successful startup --
+  // stop() is still the caller's responsibility for a clean shutdown.
+  proc.on("error", (err) => {
+    console.error(`Xvfb process error after startup: ${err.message}`);
+  });
 
   return {
     display,

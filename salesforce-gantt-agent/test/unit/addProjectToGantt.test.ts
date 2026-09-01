@@ -28,7 +28,12 @@ vi.mock("../../src/logging/runRecorder.js", () => {
 const closeSession = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../src/auth/session.js", () => ({
   openAuthenticatedSession: vi.fn().mockResolvedValue({
-    context: { newPage: vi.fn().mockResolvedValue({ screenshot: vi.fn().mockResolvedValue(undefined) }) },
+    context: {
+      newPage: vi.fn().mockResolvedValue({
+        goto: vi.fn().mockResolvedValue(undefined),
+        screenshot: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
     close: closeSession,
   }),
   SessionExpiredError: class SessionExpiredError extends Error {},

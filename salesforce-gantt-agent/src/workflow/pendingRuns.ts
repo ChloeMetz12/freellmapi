@@ -22,10 +22,26 @@ export interface PendingRun {
   resolvedWorkOrder: ResolvedWorkOrder;
 }
 
+/** If confirm_dispatch is never called (caller crashed, forgot, etc.), auto-expire the pending run so its browser session/Xvfb process don't leak indefinitely on a long-lived MCP server. */
+const PENDING_RUN_TTL_MS = 15 * 60 * 1000;
+
 const pending = new Map<string, PendingRun>();
 
 export function putPendingRun(runId: string, run: PendingRun): void {
   pending.set(runId, run);
+
+  const timer = setTimeout(() => {
+    const stillPending = pending.get(runId);
+    if (!stillPending) return; // already confirmed or cancelled
+    pending.delete(runId);
+    stillPending.ctx.logger.error(
+      { runId, ttlMs: PENDING_RUN_TTL_MS },
+      "Pending run expired without confirm_dispatch being called -- closing its browser session. " +
+        "The Work Order/Service Appointment are left un-dispatched in Salesforce for manual follow-up.",
+    );
+    stillPending.session.close().catch(() => {});
+  }, PENDING_RUN_TTL_MS);
+  timer.unref();
 }
 
 export function takePendingRun(runId: string): PendingRun | undefined {
