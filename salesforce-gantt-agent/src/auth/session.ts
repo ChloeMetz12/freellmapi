@@ -2,6 +2,7 @@ import { chromium, type Browser, type BrowserContext } from "playwright";
 import { existsSync } from "node:fs";
 import type { Env } from "../config/env.js";
 import { startVirtualDisplay, resolveChromiumExecutablePath } from "../display/virtualDisplay.js";
+import { isOnLoginPage } from "./loginDetection.js";
 
 export class SessionExpiredError extends Error {
   constructor(message: string) {
@@ -31,12 +32,13 @@ export async function openAuthenticatedSession(env: Env): Promise<AuthenticatedS
 
   const virtualDisplay = await startVirtualDisplay({ width: env.VIRTUAL_DISPLAY_WIDTH, height: env.VIRTUAL_DISPLAY_HEIGHT });
 
-  let browser: Browser;
+  let browser: Browser | undefined;
   let context: BrowserContext;
   try {
     browser = await chromium.launch({ headless: false, executablePath: resolveChromiumExecutablePath() });
     context = await browser.newContext({ storageState: env.SF_AUTH_STATE_PATH });
   } catch (err) {
+    await browser?.close().catch(() => {});
     virtualDisplay.stop();
     throw err;
   }
@@ -50,13 +52,13 @@ export async function openAuthenticatedSession(env: Env): Promise<AuthenticatedS
   try {
     const probe = await context.newPage();
     await probe.goto(env.SF_ORG_URL, { waitUntil: "domcontentloaded" });
-    // Lightning's login page always has a labeled Username field; a restored
-    // session lands on the app shell instead, where this is never visible.
-    const loggedOut = await probe
-      .getByLabel(/username/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
+    let loggedOut: boolean;
+    try {
+      loggedOut = await isOnLoginPage(probe);
+    } catch (err) {
+      await probe.close().catch(() => {});
+      throw err;
+    }
     await probe.close();
 
     if (loggedOut) {

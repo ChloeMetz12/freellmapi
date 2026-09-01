@@ -15,6 +15,8 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   VIRTUAL_DISPLAY_WIDTH: z.coerce.number().int().positive().default(1440),
   VIRTUAL_DISPLAY_HEIGHT: z.coerce.number().int().positive().default(900),
+  /** Dry-run-only: simulated Get Candidates outcome, see ServiceAppointmentPage.ts. */
+  DRY_RUN_GET_CANDIDATES_RESULT: z.enum(["ranked", "no-candidates"]).default("ranked"),
 });
 
 export type Env = z.infer<typeof envSchema>;

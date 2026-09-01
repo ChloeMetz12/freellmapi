@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 export interface VirtualDisplay {
   display: string;
@@ -87,12 +88,45 @@ export async function startVirtualDisplay(options: { width: number; height: numb
  * Playwright's normal managed location (and block downloading another one).
  * Prefer that pre-installed build when present; otherwise fall back to
  * Playwright's default resolution (a normal local machine).
+ *
+ * The pre-installed directory holds a revision-specific `chromium-<rev>`
+ * folder, so instead of hardcoding a version we discover it at runtime --
+ * this avoids silently preferring a stale, mismatched binary over
+ * Playwright's managed build after a Playwright version bump. This fallback
+ * is enabled by default whenever the directory exists (directory
+ * configurable via PLAYWRIGHT_PREINSTALLED_CHROMIUM_DIR, default
+ * /opt/pw-browsers) -- set PLAYWRIGHT_USE_PREINSTALLED_CHROMIUM=0 to opt out
+ * (e.g. on a normal machine that happens to have something at that path but
+ * should still use Playwright's own managed browser).
  */
 export function resolveChromiumExecutablePath(): string | undefined {
   const override = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   if (override && existsSync(override)) return override;
-  const preinstalled = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
-  if (existsSync(preinstalled)) return preinstalled;
+
+  if (process.env.PLAYWRIGHT_USE_PREINSTALLED_CHROMIUM === "0") return undefined;
+
+  const baseDir = process.env.PLAYWRIGHT_PREINSTALLED_CHROMIUM_DIR ?? "/opt/pw-browsers";
+  if (!existsSync(baseDir)) return undefined;
+
+  let entries: string[];
+  try {
+    entries = readdirSync(baseDir);
+  } catch {
+    // Path exists but isn't a readable directory (ENOTDIR/EACCES/etc) --
+    // fall back to Playwright's default resolution instead of throwing.
+    return undefined;
+  }
+
+  const revisions = entries
+    .map((entry) => /^chromium-(\d+)$/.exec(entry))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .sort((a, b) => Number(b[1]) - Number(a[1]));
+
+  for (const match of revisions) {
+    const candidate = join(baseDir, match[0], "chrome-linux", "chrome");
+    if (existsSync(candidate)) return candidate;
+  }
+
   return undefined;
 }
 

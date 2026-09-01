@@ -5,6 +5,25 @@ import { selectors } from "../config/selectors.js";
 
 export type GetCandidatesResult = { status: "ranked"; topCandidate: string } | { status: "no-candidates" } | { status: "error"; message: string };
 
+const DRY_RUN_GET_CANDIDATES_VALUES = ["ranked", "no-candidates"] as const;
+
+/**
+ * Validates DRY_RUN_GET_CANDIDATES_RESULT against the values the schema in
+ * config/env.ts declares, without requiring the rest of the (possibly
+ * unrelated) Env to be loaded -- getCandidates() only needs this one var.
+ * A typo'd value fails fast instead of silently falling back to "ranked".
+ */
+function readDryRunGetCandidatesResult(): (typeof DRY_RUN_GET_CANDIDATES_VALUES)[number] {
+  const raw = process.env.DRY_RUN_GET_CANDIDATES_RESULT;
+  if (raw === undefined) return "ranked";
+  if ((DRY_RUN_GET_CANDIDATES_VALUES as readonly string[]).includes(raw)) {
+    return raw as (typeof DRY_RUN_GET_CANDIDATES_VALUES)[number];
+  }
+  throw new Error(
+    `Invalid DRY_RUN_GET_CANDIDATES_RESULT: "${raw}" (expected one of: ${DRY_RUN_GET_CANDIDATES_VALUES.join(", ")})`,
+  );
+}
+
 /**
  * Clicks "Get Candidates" and reports what happened. Per the training
  * transcript this is unreliable ("it works, sometimes it doesn't work"),
@@ -64,9 +83,14 @@ export class ServiceAppointmentPage {
         return { status: "ranked", topCandidate: topCandidate.trim() };
       },
       // Dry-run: no real Get Candidates call was made, so simulate a
-      // successful ranked result -- otherwise the workflow could never
-      // exercise its Dispatched path in dry-run mode.
-      { status: "ranked", topCandidate: "Dry Run Technician" },
+      // result -- otherwise the workflow could never exercise its
+      // Dispatched/NeedsManualAssignment paths in dry-run mode. Defaults to
+      // a clearly-marked ranked candidate; set DRY_RUN_GET_CANDIDATES_RESULT
+      // to "no-candidates" to exercise the manual-assignment fallback
+      // instead.
+      readDryRunGetCandidatesResult() === "no-candidates"
+        ? { status: "no-candidates" }
+        : { status: "ranked", topCandidate: "[DRY RUN] Dry Run Technician" },
     );
   }
 
