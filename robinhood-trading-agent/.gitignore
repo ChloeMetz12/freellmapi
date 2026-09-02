@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Persisted safety/halt state, PDT trade log, learning weights — local,
+# stateful, and must never be reset by a fresh checkout or deploy.
+/state/
+
+# Structured audit log (decisions, orders, learning updates, halt/resume)
+runs/
+
+.env
+.env.local
