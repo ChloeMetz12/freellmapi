@@ -30,6 +30,11 @@ export function rsi(closes: number[], period = 14): (number | null)[] {
 }
 
 function rsiFromAverages(avgGain: number, avgLoss: number): number {
+  // A flat/unchanged price series has avgGain === avgLoss === 0, which is
+  // neutral, not overbought — falling through to the avgLoss===0 branch
+  // below would wrongly return 100 and bias rsiVote fully bearish on a
+  // price that hasn't moved at all.
+  if (avgGain === 0 && avgLoss === 0) return 50;
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);

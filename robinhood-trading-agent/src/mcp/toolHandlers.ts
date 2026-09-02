@@ -15,7 +15,7 @@ import { computePositionSize } from "../execution/sizing.js";
 import { buildOrderPlan } from "../execution/orderPlan.js";
 import type { AssetClass } from "../config/watchlist.js";
 import type { MarketTrendSnapshot } from "../sentiment/types.js";
-import type { OhlcvBar } from "../marketdata/types.js";
+import { assertSortedAscending, type OhlcvBar } from "../marketdata/types.js";
 import type { Action, SignalKey } from "../strategy/types.js";
 
 /** Wires the deterministic strategy/safety/learning modules to the stateful stores the MCP tools need. Constructed once per process, from env. */
@@ -42,6 +42,11 @@ export class ToolHandlers {
   }
 
   computeDecision(symbol: string, bars: OhlcvBar[]) {
+    // The MCP schema boundary doesn't (can't, via zod alone) enforce bar
+    // ordering — every indicator/pattern detector assumes oldest-first and
+    // will silently produce wrong results on newest-first input rather
+    // than erroring, so fail fast here instead.
+    assertSortedAscending(bars);
     const cached = this.sentimentCache.get();
     const sentimentScore = cached ? cached.result.score : null;
     const decision = computeSignal(bars, sentimentScore, this.weightStore.get());
@@ -67,6 +72,9 @@ export class ToolHandlers {
   }
 
   sizeOrder(input: { symbol: string; currentPrice: number; action: Action; confidence: number; score: number; contributingSignals: Array<{ key: SignalKey; vote: number; weight: number; detail: string }>; cash: number; maxMarginBuyingPower: number; bars: OhlcvBar[] }) {
+    // Same ordering assumption as computeDecision — computePositionSize's
+    // ATR call needs oldest-first bars too.
+    assertSortedAscending(input.bars);
     const sizing = computePositionSize({
       cash: input.cash,
       maxMarginBuyingPower: input.maxMarginBuyingPower,
@@ -88,14 +96,20 @@ export class ToolHandlers {
 
   async recordOutcome(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; realizedReturnPct: number; isDayTrade: boolean; currentEquity: number; closedAt?: string }) {
     const closedAt = input.closedAt ?? new Date().toISOString();
+    // Use the trade's actual close time for PDT dating, not "now" —
+    // record_outcome can be called after midnight or with a delay, and
+    // canRecordDayTrade/recordDayTrade default to `new Date()` if not told
+    // otherwise, which would date the trade to the wrong day and throw off
+    // the rolling PDT window.
+    const closedAtDate = new Date(closedAt);
 
     if (input.isDayTrade) {
-      const pdtCheck = canRecordDayTrade(this.safetyStore.get(), input.assetClass, input.currentEquity);
+      const pdtCheck = canRecordDayTrade(this.safetyStore.get(), input.assetClass, input.currentEquity, closedAtDate);
       // The trade already happened by the time this is recorded — this
       // just keeps the PDT counter accurate for the *next* check, it can't
       // retroactively block what already executed.
       if (input.assetClass === "equity") {
-        this.safetyStore.save(recordDayTrade(this.safetyStore.get(), input.symbol));
+        this.safetyStore.save(recordDayTrade(this.safetyStore.get(), input.symbol, closedAtDate));
       }
       if (!pdtCheck.allowed) {
         this.auditLog.record({ type: "order", symbol: input.symbol, warning: pdtCheck.reason });

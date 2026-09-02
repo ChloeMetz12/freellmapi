@@ -39,6 +39,16 @@ describe("rsi", () => {
     expect(result[14]).toBe(0);
     expect(result[15]).toBe(0);
   });
+
+  it("is neutral (50), not overbought (100), for a completely flat/unchanged series", () => {
+    // avgGain === avgLoss === 0 here — falling into the same branch as "no
+    // losses at all" would wrongly read as maximally overbought on a price
+    // that hasn't moved, biasing rsiVote fully bearish for no reason.
+    const closes = new Array(16).fill(100);
+    const result = rsi(closes, 14);
+    expect(result[14]).toBe(50);
+    expect(result[15]).toBe(50);
+  });
 });
 
 describe("macd", () => {
