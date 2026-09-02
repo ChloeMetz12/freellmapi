@@ -15,20 +15,29 @@ export interface SafetyCheckResult {
   updatedState: SafetyState;
 }
 
+const MANUAL_HALT_FALLBACK_REASON = "Manually halted — run `cli resume` to clear.";
+
 /**
- * The single gate `execution/` must pass before any order is placed. Order
- * of checks matters only for which reason gets reported first when
- * several trip at once — every check still runs so the persisted state
- * (e.g. the day-start-equity rebaseline) stays correct regardless.
+ * The single gate `execution/` must pass before any order is placed.
+ * While already halted (manual or auto), this deliberately returns early
+ * WITHOUT running checkDailyLoss's rebaseline — resuming later should
+ * compare against the equity baseline from before the halt, not one that
+ * drifted while halted. Once the day rolls over, checkDailyLoss's own
+ * date-mismatch rebaseline still fires correctly on the first check after
+ * resume. Order of the two triggered-this-call checks below only matters
+ * for which reason gets reported first when both trip at once.
  */
 export function evaluateSafety(state: SafetyState, input: SafetyCheckInput): SafetyCheckResult {
   const now = input.now ?? new Date();
 
-  if (state.manuallyHalted) {
-    return { halted: true, reason: "Manually halted — run `cli resume` to clear.", updatedState: state };
-  }
-  if (state.autoHaltReason) {
-    return { halted: true, reason: state.autoHaltReason, updatedState: state };
+  if (state.manuallyHalted || state.autoHaltReason) {
+    // `state.autoHaltReason` also holds the operator-supplied reason for a
+    // manual halt (see `halt()` below) — surface it instead of a generic
+    // string so (a) the real reason isn't hidden from callers and (b) a
+    // caller comparing this reason against the state's stored
+    // autoHaltReason to detect a *newly triggered* auto-halt doesn't get a
+    // false positive every time (see ToolHandlers.checkSafety).
+    return { halted: true, reason: state.autoHaltReason ?? MANUAL_HALT_FALLBACK_REASON, updatedState: state };
   }
 
   const marginCheck = checkMarginRisk(input.marginMaintenanceUtilization);

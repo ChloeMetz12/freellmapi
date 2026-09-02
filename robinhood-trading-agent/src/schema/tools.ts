@@ -8,7 +8,13 @@ export const getSentimentInputSchema = z.object({
 
 export const computeDecisionInputSchema = z.object({
   symbol: z.string().min(1),
-  bars: z.array(ohlcvBarSchema).min(1, "at least one OHLCV bar is required; most indicators need 50+ for a meaningful read"),
+  // 21 bars is the real floor for EMA(21)/RSI(14)/ATR(14)/Bollinger(20) to
+  // all be active (see strategy/signal.ts); MACD(12,26,9)'s histogram
+  // additionally needs ~35 bars and simply contributes no vote below that
+  // (computeSignal degrades gracefully, it doesn't error) — this schema
+  // enforces the floor below which *most* signals would be silently
+  // absent, not the point at which every signal is guaranteed present.
+  bars: z.array(ohlcvBarSchema).min(21, "at least 21 OHLCV bars are required for the EMA/RSI/ATR/Bollinger signals to be active; MACD needs ~35 bars before it contributes"),
 });
 
 export const checkSafetyInputSchema = z.object({

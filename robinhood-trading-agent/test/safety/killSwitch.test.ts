@@ -70,4 +70,20 @@ describe("evaluateSafety", () => {
     const afterResume = evaluateSafety(resumed, { currentEquity: 10_000, marginMaintenanceUtilization: null, now: DAY_ONE });
     expect(afterResume.halted).toBe(false);
   });
+
+  it("surfaces the actual operator-supplied reason for a manual halt, not a generic placeholder", () => {
+    const halted = halt(baseState, "operator said stop");
+    const result = evaluateSafety(halted, { currentEquity: 10_000, marginMaintenanceUtilization: null, now: DAY_ONE });
+    expect(result.reason).toBe("operator said stop");
+  });
+
+  it("leaves updatedState.autoHaltReason unchanged while already halted, so a caller can distinguish a NEW auto-halt from a repeat check", () => {
+    // This is the property ToolHandlers.checkSafety relies on to avoid
+    // mis-logging every poll of an already-halted agent as a fresh
+    // auto-halt event (it compares autoHaltReason before vs. after, not
+    // the returned reason string against the old state).
+    const halted = halt(baseState, "manual test halt");
+    const result = evaluateSafety(halted, { currentEquity: 10_000, marginMaintenanceUtilization: null, now: DAY_ONE });
+    expect(result.updatedState.autoHaltReason).toBe(halted.autoHaltReason);
+  });
 });

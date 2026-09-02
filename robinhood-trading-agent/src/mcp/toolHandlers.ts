@@ -54,8 +54,14 @@ export class ToolHandlers {
     const state = this.safetyStore.get();
     const result = evaluateSafety(state, { currentEquity, marginMaintenanceUtilization });
     this.safetyStore.save(result.updatedState);
-    if (result.halted && result.reason && result.reason !== state.autoHaltReason) {
-      this.auditLog.record({ type: "halt", reason: result.reason, source: "auto" });
+    // Log only a genuinely NEW auto-halt: compare the persisted
+    // autoHaltReason before vs. after this call, not the returned reason
+    // string against it — evaluateSafety's already-halted early-return
+    // (manual or auto) leaves state unchanged, so this stays false there
+    // and doesn't spam the log with a mislabeled duplicate every time
+    // checkSafety is polled while already halted (manually or otherwise).
+    if (result.updatedState.autoHaltReason && result.updatedState.autoHaltReason !== state.autoHaltReason) {
+      this.auditLog.record({ type: "halt", reason: result.updatedState.autoHaltReason, source: "auto" });
     }
     return { halted: result.halted, reason: result.reason };
   }

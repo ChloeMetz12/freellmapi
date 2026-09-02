@@ -1,5 +1,6 @@
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { z } from "zod";
 
 export interface PdtTradeRecord {
   symbol: string;
@@ -26,6 +27,17 @@ const DEFAULT_STATE: SafetyState = {
   pdtTrades: [],
 };
 
+const pdtTradeRecordSchema = z.object({ symbol: z.string(), dateIso: z.string() });
+
+/** Validates the on-disk shape, not just that it's parseable JSON — a corrupted-but-valid-JSON file (e.g. dayStartEquity as a string) must not flow through into NaN equity-loss math and silently disable the kill-switch. */
+const safetyStateSchema = z.object({
+  manuallyHalted: z.boolean(),
+  autoHaltReason: z.string().nullable(),
+  dayStartEquity: z.number().nullable(),
+  dayStartDateIso: z.string().nullable(),
+  pdtTrades: z.array(pdtTradeRecordSchema),
+});
+
 /** Persists safety/halt/PDT state to disk so a restart never resets the kill-switch (see plan's Deployment & orchestration). */
 export class SafetyStateStore {
   private readonly filePath: string;
@@ -39,19 +51,31 @@ export class SafetyStateStore {
 
   private load(): SafetyState {
     if (!existsSync(this.filePath)) return { ...DEFAULT_STATE };
+
+    let raw: unknown;
     try {
-      return { ...DEFAULT_STATE, ...JSON.parse(readFileSync(this.filePath, "utf-8")) };
-    } catch {
-      // A corrupt file (partial write, crash mid-save) must not crash the
-      // decision-engine process — that would leave check_safety unable to
-      // answer at all, which is worse for a caller that treats "halted" as
-      // the safe default when it can't get a clear answer. Note the real
-      // tradeoff this makes, though: falling back to DEFAULT_STATE also
-      // discards a persisted MANUAL halt if that's what got corrupted,
-      // resuming trading rather than staying halted. The equity/PDT
-      // baselines rebuild safely from scratch either way.
-      return { ...DEFAULT_STATE };
+      raw = JSON.parse(readFileSync(this.filePath, "utf-8"));
+    } catch (err) {
+      return this.corruptedFallback(`safety state file was unreadable/invalid JSON (${(err as Error).message})`);
     }
+
+    const parsed = safetyStateSchema.safeParse(raw);
+    if (!parsed.success) {
+      return this.corruptedFallback(`safety state file failed validation (${parsed.error.issues.map((i) => i.path.join(".")).join(", ")})`);
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Fail CLOSED, not open: this is a kill-switch, so state this untrustworthy
+   * must not silently resume trading (as falling back to plain DEFAULT_STATE
+   * would). Halt immediately with an explicit corruption reason and require
+   * an operator to `resume` once they've confirmed what happened to the
+   * file — the day-start-equity/PDT baselines still rebuild safely from
+   * scratch on the next check, same as a normal fresh install.
+   */
+  private corruptedFallback(reason: string): SafetyState {
+    return { ...DEFAULT_STATE, manuallyHalted: true, autoHaltReason: `${reason} — halted until manually resumed.` };
   }
 
   get(): SafetyState {
