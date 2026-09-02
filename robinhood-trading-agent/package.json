@@ -22,7 +22,6 @@
     "commander": "^13.1.0",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "pino": "^9.6.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

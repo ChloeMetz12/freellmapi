@@ -51,14 +51,22 @@ Recent headlines (financial + world/political):
 ${headlineLines}`;
 }
 
-async function safelyFetch(name: string, fn: () => Promise<NewsHeadline[]>): Promise<NewsHeadline[]> {
+/** Exported for direct unit testing of the secret-redaction behavior below — not part of the module's intended external API otherwise. */
+export async function safelyFetch(name: string, fn: () => Promise<NewsHeadline[]>): Promise<NewsHeadline[]> {
   try {
     return await fn();
   } catch (err) {
+    // Never put the raw error message into content that reaches the LLM
+    // prompt or the audit log: both providers embed their API key as a
+    // URL query parameter (?token=.../?apiKey=...), and a fetch-level
+    // network error (Node/undici) can include the full request URL in its
+    // message — that must never flow into a headline title the LLM reads
+    // and the audit log records. Log the real error server-side only.
+    console.error(`[sentiment] ${name} fetch failed:`, err);
     // A single provider failing degrades that provider's input, not the
     // whole sentiment read — the LLM still sees whatever the other
     // provider returned, and gets told this one was unavailable.
-    return [{ title: `(${name} unavailable: ${(err as Error).message})`, source: name, publishedAt: new Date().toISOString(), url: "" }];
+    return [{ title: `(${name} unavailable)`, source: name, publishedAt: new Date().toISOString(), url: "" }];
   }
 }
 

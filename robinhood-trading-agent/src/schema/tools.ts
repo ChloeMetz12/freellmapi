@@ -44,7 +44,13 @@ export const recordOutcomeInputSchema = z.object({
   realizedReturnPct: z.number(),
   isDayTrade: z.boolean(),
   currentEquity: z.number().positive(),
-  closedAt: z.string().optional(),
+  // Validated as an actual ISO datetime, not just any string — toolHandlers
+  // passes this straight into `new Date(closedAt)` and then into the PDT
+  // window helper's own .toISOString() calls, which throw on an invalid
+  // timestamp. Rejecting a malformed value here, at the tool boundary,
+  // means a bad caller payload gets a clear schema-validation error
+  // instead of crashing deep inside record_outcome.
+  closedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 export const haltInputSchema = z.object({
