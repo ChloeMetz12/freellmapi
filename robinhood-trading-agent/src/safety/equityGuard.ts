@@ -13,21 +13,26 @@ export interface EquityCheckResult {
 }
 
 /**
- * Rebaselines `dayStartEquity` at the first check of a new calendar day,
- * then checks today's drawdown against the hard daily-loss halt fraction.
- * This is the one non-optional backstop in an otherwise fully autonomous,
- * uncapped-position-size design (see plan Context).
+ * Rebaselines `dayStartEquity` at the first check of a new calendar day (or
+ * whenever it's missing — e.g. a fresh/recovered state — not only on a date
+ * change: a partially-persisted state with today's date but no baseline
+ * must not silently fall back to comparing currentEquity against itself
+ * every call, which would make the daily-loss halt a permanent no-op for
+ * the rest of that day), then checks today's drawdown against the hard
+ * daily-loss halt fraction. This is the one non-optional backstop in an
+ * otherwise fully autonomous, uncapped-position-size design (see plan
+ * Context).
  */
 export function checkDailyLoss(state: SafetyState, currentEquity: number, now: Date = new Date()): EquityCheckResult {
   const today = todayIso(now);
   let updatedState = state;
 
-  if (state.dayStartDateIso !== today) {
+  if (state.dayStartDateIso !== today || state.dayStartEquity === null) {
     updatedState = { ...state, dayStartDateIso: today, dayStartEquity: currentEquity };
     return { triggered: false, updatedState };
   }
 
-  const baseline = state.dayStartEquity ?? currentEquity;
+  const baseline = state.dayStartEquity;
   if (baseline <= 0) return { triggered: false, updatedState };
 
   const lossFraction = (baseline - currentEquity) / baseline;

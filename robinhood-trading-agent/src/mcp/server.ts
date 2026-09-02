@@ -10,14 +10,17 @@
  * the calling Claude session runs remotely and needs a stable URL to hit
  * on every cron-triggered firing.
  */
+import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { loadEnv } from "../config/env.js";
+import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
 import { getSentimentInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema } from "../schema/tools.js";
 
 const env = loadEnv();
+applyEnvRiskOverrides(env);
 const handlers = new ToolHandlers(env);
 
 function jsonResult(data: unknown) {
@@ -120,10 +123,21 @@ function buildServer(): McpServer {
   return server;
 }
 
+/** Timing-safe comparison — a shared-secret bearer token must never be checked with `!==`, which leaks a character-by-character timing signal. */
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // Different lengths can't be compared by timingSafeEqual (it throws) —
+  // returning early here does leak token length, but that's a far smaller
+  // leak than a prefix-comparable equality check.
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
 function requireAuth(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {
   const header = req.header("authorization");
   const token = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
-  if (!token || token !== env.MCP_AUTH_TOKEN) {
+  if (!token || !tokensMatch(token, env.MCP_AUTH_TOKEN)) {
     res.status(401).json({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null });
     return;
   }

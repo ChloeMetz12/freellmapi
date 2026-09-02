@@ -165,7 +165,10 @@ and `src/learning/reflection.ts` for the actual system prompts.
 - **Pattern-day-trader guard** (`src/safety/pdt.ts`): for equities only,
   blocks a same-day round-trip once 3 day trades have occurred in the
   rolling 5-business-day window, if account equity is under $25k. Crypto is
-  unaffected.
+  unaffected. The window only excludes weekends, not U.S. market holidays —
+  see the docstring on `lastNBusinessDays` for why that's not guaranteed
+  conservative in either direction, and don't treat it as compliance-grade
+  without a real market-holiday calendar.
 - Any halt (auto or manual) persists until an explicit `resume` — see
   `src/safety/killSwitch.ts`.
 

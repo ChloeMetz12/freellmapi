@@ -19,8 +19,15 @@ export class WeightStore {
 
   private load(): SignalWeights {
     if (!existsSync(this.filePath)) return { ...DEFAULT_SIGNAL_WEIGHTS };
-    const raw = JSON.parse(readFileSync(this.filePath, "utf-8"));
-    return { ...DEFAULT_SIGNAL_WEIGHTS, ...raw };
+    try {
+      const raw = JSON.parse(readFileSync(this.filePath, "utf-8"));
+      return { ...DEFAULT_SIGNAL_WEIGHTS, ...raw };
+    } catch {
+      // Corrupt on-disk weights (partial write, crash mid-save) must not
+      // crash the process — degrade to the default weights (losing this
+      // run's learned adjustments, not the ability to trade at all).
+      return { ...DEFAULT_SIGNAL_WEIGHTS };
+    }
   }
 
   get(): SignalWeights {

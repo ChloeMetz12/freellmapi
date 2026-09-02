@@ -40,12 +40,28 @@ function trendVote(ema9: number | null, ema21: number | null): SignalVote | null
   return { key: "trend", vote, detail: `EMA9=${ema9.toFixed(4)} EMA21=${ema21.toFixed(4)}` };
 }
 
+/**
+ * Mean-reversion vote: neutral (0) inside the configured overbought/oversold
+ * band, scaling toward ±1 only as RSI moves past that band toward the
+ * extremes (0/100) — matching the plan's stated "RSI(14), overbought/
+ * oversold at 70/30" strategy default (RISK_LIMITS.rsiOverbought/
+ * rsiOversold), rather than a flat linear map around 50 that ignored those
+ * configured thresholds entirely.
+ */
 function rsiVote(closes: number[]): SignalVote | null {
   const series = rsi(closes, 14);
   const last = series[series.length - 1];
   if (last === null) return null;
-  const vote = clamp((50 - last) / 50, -1, 1);
-  return { key: "momentum_rsi", vote, detail: `RSI(14)=${last.toFixed(1)}` };
+
+  const { rsiOverbought, rsiOversold } = RISK_LIMITS;
+  let vote = 0;
+  if (last >= rsiOverbought) {
+    vote = -((last - rsiOverbought) / (100 - rsiOverbought));
+  } else if (last <= rsiOversold) {
+    vote = (rsiOversold - last) / rsiOversold;
+  }
+
+  return { key: "momentum_rsi", vote: clamp(vote, -1, 1), detail: `RSI(14)=${last.toFixed(1)} (overbought>=${rsiOverbought}, oversold<=${rsiOversold})` };
 }
 
 function macdVote(closes: number[]): SignalVote | null {

@@ -2,9 +2,37 @@
  * Risk-limit constants. These are the load-bearing guardrails referenced
  * throughout the plan — changing them changes how much capital the agent
  * can lose, not just a tuning knob, so treat edits here as risk decisions.
+ *
+ * `RISK_LIMITS` is a mutable singleton (not `as const`) specifically so
+ * `applyEnvRiskOverrides` can hydrate the handful of fields that are also
+ * exposed as env vars (see `.env.example`) — without that call, changing
+ * those env vars would silently have no effect on the actual guardrails.
+ * Every module that imports `RISK_LIMITS` reads the same object reference,
+ * so calling `applyEnvRiskOverrides` once at process startup, before any
+ * request is handled, is sufficient.
  */
 
-export const RISK_LIMITS = {
+export interface RiskLimits {
+  dailyLossHaltFraction: number;
+  marginUtilizationCap: number;
+  marginCallWarningThreshold: number;
+  pdtEquityThresholdUsd: number;
+  pdtMaxDayTrades: number;
+  pdtRollingWindowDays: number;
+  volatilityScalarMin: number;
+  volatilityScalarMax: number;
+  volumeConfirmationMultiplier: number;
+  volumeConfirmationDiscount: number;
+  rsiOverbought: number;
+  rsiOversold: number;
+  learning: {
+    stepSize: number;
+    minWeight: number;
+    maxWeight: number;
+  };
+}
+
+export const RISK_LIMITS: RiskLimits = {
   /** Hard kill-switch: halt all trading if today's equity drop exceeds this fraction. */
   dailyLossHaltFraction: 0.1,
 
@@ -44,4 +72,16 @@ export const RISK_LIMITS = {
     minWeight: 0.1,
     maxWeight: 3.0,
   },
-} as const;
+};
+
+/**
+ * Hydrates the subset of `RISK_LIMITS` that `.env.example` documents as
+ * configurable (`DAILY_LOSS_HALT_PCT`, `MARGIN_UTILIZATION_CAP`,
+ * `PDT_EQUITY_THRESHOLD_USD`). Call once at process startup, right after
+ * `loadEnv()`, before constructing anything that reads `RISK_LIMITS`.
+ */
+export function applyEnvRiskOverrides(env: { DAILY_LOSS_HALT_PCT: number; MARGIN_UTILIZATION_CAP: number; PDT_EQUITY_THRESHOLD_USD: number }): void {
+  RISK_LIMITS.dailyLossHaltFraction = env.DAILY_LOSS_HALT_PCT;
+  RISK_LIMITS.marginUtilizationCap = env.MARGIN_UTILIZATION_CAP;
+  RISK_LIMITS.pdtEquityThresholdUsd = env.PDT_EQUITY_THRESHOLD_USD;
+}

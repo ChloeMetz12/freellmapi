@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 import { Command } from "commander";
 import { loadEnv } from "../config/env.js";
+import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "../mcp/toolHandlers.js";
 
 const env = loadEnv();
+applyEnvRiskOverrides(env);
 const handlers = new ToolHandlers(env);
 
 const program = new Command();

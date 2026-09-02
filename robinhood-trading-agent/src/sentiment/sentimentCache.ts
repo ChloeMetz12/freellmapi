@@ -23,7 +23,14 @@ export class SentimentCache {
 
   get(): CachedSentiment | null {
     if (!existsSync(this.filePath)) return null;
-    return JSON.parse(readFileSync(this.filePath, "utf-8"));
+    try {
+      return JSON.parse(readFileSync(this.filePath, "utf-8"));
+    } catch {
+      // On-disk state can be corrupted (partial write, crash mid-save) —
+      // degrade to "no cached sentiment" rather than crashing
+      // compute_decision and, with it, the whole agent loop.
+      return null;
+    }
   }
 
   set(result: SentimentResult): void {

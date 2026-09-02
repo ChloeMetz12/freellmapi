@@ -72,7 +72,11 @@ export class ToolHandlers {
     const plan = buildOrderPlan(input.symbol, input.currentPrice, decision, sizing);
     const executeOrder = plan !== null && this.env.MODE === "live";
     const result = { sizing, plan, executeOrder, mode: this.env.MODE };
-    this.auditLog.record({ type: "order", ...result });
+    // Include the symbol and core decision inputs alongside the sizing
+    // result — without them, an order-event log line (especially a HOLD,
+    // where plan is null) can't be correlated back to the decision that
+    // produced it.
+    this.auditLog.record({ type: "order", symbol: input.symbol, action: input.action, score: input.score, confidence: input.confidence, ...result });
     return result;
   }
 

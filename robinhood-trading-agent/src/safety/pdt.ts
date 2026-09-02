@@ -7,7 +7,17 @@ function isWeekend(date: Date): boolean {
   return day === 0 || day === 6;
 }
 
-/** The most recent `n` business days, including today if today is a business day, as YYYY-MM-DD strings. */
+/**
+ * The most recent `n` weekdays (Mon-Fri), including today if today is a
+ * weekday, as YYYY-MM-DD strings. This is an approximation of FINRA
+ * "business days" — it treats U.S. market holidays as ordinary trading
+ * days, so around a holiday the specific 5 days in this window can differ
+ * from the exchange's actual rolling 5-business-day PDT window (e.g. a
+ * trade made on the real window's oldest trading day can fall just outside
+ * this approximation's window, or vice versa). This is not guaranteed to
+ * be conservative in either direction — do not treat it as a substitute
+ * for a real market-holiday calendar in a compliance-sensitive deployment.
+ */
 function lastNBusinessDays(now: Date, n: number): Set<string> {
   const days = new Set<string>();
   const cursor = new Date(now);

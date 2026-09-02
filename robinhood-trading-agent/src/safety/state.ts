@@ -39,7 +39,19 @@ export class SafetyStateStore {
 
   private load(): SafetyState {
     if (!existsSync(this.filePath)) return { ...DEFAULT_STATE };
-    return { ...DEFAULT_STATE, ...JSON.parse(readFileSync(this.filePath, "utf-8")) };
+    try {
+      return { ...DEFAULT_STATE, ...JSON.parse(readFileSync(this.filePath, "utf-8")) };
+    } catch {
+      // A corrupt file (partial write, crash mid-save) must not crash the
+      // decision-engine process — that would leave check_safety unable to
+      // answer at all, which is worse for a caller that treats "halted" as
+      // the safe default when it can't get a clear answer. Note the real
+      // tradeoff this makes, though: falling back to DEFAULT_STATE also
+      // discards a persisted MANUAL halt if that's what got corrupted,
+      // resuming trading rather than staying halted. The equity/PDT
+      // baselines rebuild safely from scratch either way.
+      return { ...DEFAULT_STATE };
+    }
   }
 
   get(): SafetyState {

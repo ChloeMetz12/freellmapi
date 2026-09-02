@@ -44,6 +44,23 @@ describe("evaluateSafety", () => {
     expect(result.reason).toMatch(/Margin maintenance/);
   });
 
+  it("rebaselines instead of no-op'ing when dayStartEquity is null even though dayStartDateIso already matches today", () => {
+    // A partially-persisted/recovered state: today's date is already
+    // recorded but the equity baseline itself is missing. Without
+    // rebaselining here, checkDailyLoss would fall back to comparing
+    // currentEquity against itself every call (lossFraction always 0),
+    // silently making the daily-loss halt a no-op for the rest of the day.
+    const partialState: SafetyState = { ...baseState, dayStartDateIso: "2026-09-02", dayStartEquity: null };
+    const result = evaluateSafety(partialState, { currentEquity: 10_000, marginMaintenanceUtilization: null, now: DAY_ONE });
+    expect(result.halted).toBe(false);
+    expect(result.updatedState.dayStartEquity).toBe(10_000);
+
+    // And the halt now actually trips on a later drop, proving it isn't a no-op.
+    const droppedEquity = 10_000 * (1 - RISK_LIMITS.dailyLossHaltFraction);
+    const later = evaluateSafety(result.updatedState, { currentEquity: droppedEquity, marginMaintenanceUtilization: null, now: SAME_DAY_LATER });
+    expect(later.halted).toBe(true);
+  });
+
   it("stays halted on subsequent checks until an explicit resume", () => {
     const halted = halt(baseState, "manual test halt");
     const stillHalted = evaluateSafety(halted, { currentEquity: 10_000, marginMaintenanceUtilization: null, now: DAY_ONE });

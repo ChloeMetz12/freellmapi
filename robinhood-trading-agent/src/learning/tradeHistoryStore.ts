@@ -18,7 +18,19 @@ export class TradeHistoryStore {
   constructor(stateDir: string) {
     mkdirSync(stateDir, { recursive: true });
     this.filePath = join(stateDir, "trade-history.json");
-    this.entries = existsSync(this.filePath) ? JSON.parse(readFileSync(this.filePath, "utf-8")) : [];
+    this.entries = this.load();
+  }
+
+  private load(): TradeHistoryEntry[] {
+    if (!existsSync(this.filePath)) return [];
+    try {
+      return JSON.parse(readFileSync(this.filePath, "utf-8"));
+    } catch {
+      // Corrupt on-disk history (partial write, crash mid-save) must not
+      // crash the process — degrade to an empty rolling history rather
+      // than taking down record_outcome (and with it, the learning update).
+      return [];
+    }
   }
 
   append(entry: TradeHistoryEntry): void {
