@@ -58,14 +58,58 @@ So the architecture splits in two:
    `RobinHood_Trade` connector *and* this server as an MCP connection. A
    cron Routine (`create_trigger`) wakes it every 1-5 minutes during market
    hours; each firing it: calls `RobinHood_Trade`'s data tools for fresh
-   OHLCV/account state → calls this server's `compute_decision` → calls
-   `check_safety` → if clear, calls `size_order` then `RobinHood_Trade`'s
-   `place_order` → calls `record_outcome` once the trade closes.
+   quotes/history/account state → calls this server's `compute_decision` →
+   calls `check_safety` → if clear, calls `size_order` then `RobinHood_Trade`'s
+   order-placement tools → calls `record_outcome` once the trade closes.
 
-This is an assumption to confirm the moment the connector is authorized and
-its actual tool surface is inspectable — if Robinhood's endpoint turns out
-to also support a direct machine-to-machine credential grant, the simpler
-standalone-daemon shape becomes viable and this split isn't necessary.
+### The real `RobinHood_Trade` tool surface (confirmed, 67 tools)
+
+The names above (`get_quote`, `place_order`, etc.) were placeholders written
+before the connector was authorized. The actual surface, once inspected, is
+organized per asset class rather than as one generic set — this package's
+`mcp/server.ts` tool descriptions and any orchestrating prompt need to name
+the real tools:
+
+- **Accounts**: `get_accounts` (lists accounts — call this first),
+  `get_portfolio(account_number)` for buying power/equity breakdown. Equity
+  and option calls use `account_number`; **crypto calls use a different
+  field, `rhs_account_number`**, from the same or a separate account listing
+  — don't assume they're interchangeable.
+- **Equities**: `get_equity_quotes`, `get_equity_historicals` (OHLCV),
+  `get_equity_positions`, `get_equity_orders`, `get_equity_tradability`,
+  `get_equity_tax_lots`. Order flow is
+  `review_equity_order(...)` → `place_equity_order(...)` →
+  `cancel_equity_order(account_number, order_id)`.
+- **Crypto**: mirrors equities under its own names —
+  `get_crypto_quotes`, `get_crypto_positions`, `get_crypto_orders`, and
+  `preview_crypto_order(...)` → `place_crypto_order(...)` →
+  `cancel_crypto_order(rhs_account_number, order_id)`.
+- **Options**: also present (`get_option_chains`, `place_option_order`,
+  `exercise_option`, etc.) but out of scope — this package's strategy/sizing
+  was built for equities+crypto only (see Open risks).
+- **Also available, not yet wired into this package but worth knowing
+  about**: `get_equity_technical_indicators` (RSI/MACD/BB/EMA/SMA/ATR/VWAP
+  computed by Robinhood itself — this package currently computes its own in
+  `src/strategy/indicators/` instead, deliberately, to keep the risk-critical
+  path testable/auditable independent of an external implementation, but
+  it's an option to cross-check against), `get_equity_news`,
+  `get_earnings_calendar`/`get_earnings_results`, `get_financials`,
+  `get_sec_filing*` — these could supplement or partly replace the Finnhub
+  provider in `src/sentiment/` for the financial-news half of sentiment
+  (NewsAPI would still be needed for the world/politics half).
+
+**Open question this raises, not yet resolved**: every order-placing tool
+(`place_equity_order`, `place_option_order`, `place_crypto_order`) is paired
+with a `review_*`/`preview_*` tool meant to be called first, and — per the
+session that inspected them — *"they all require explicit user confirmation
+before firing."* Whether that means a UI approval prompt shown to a human
+(which would cap how autonomous this can actually be, no matter what this
+package does) or a parameter the calling agent can supply itself (more like
+`salesforce-gantt-agent`'s own `confirm_dispatch` tool in this repo) is
+unconfirmed. This directly affects whether "fully autonomous, no per-trade
+approval" (see the configuration table above) is achievable through this
+connector at all — confirm this before wiring `size_order`'s output to an
+actual `place_*_order` call.
 
 ### Deployment
 
@@ -195,9 +239,14 @@ and `src/learning/reflection.ts` for the actual system prompts.
 - Routing sentiment through `freellmapi`'s own free-tier LLM aggregation
   adds a dependency on that gateway's uptime/quality for a real-money
   decision path — acceptable only because failures degrade to neutral.
-- Robinhood's actual tool names/schemas at `agent.robinhood.com/mcp/trading`
-  and its terms for automated/agentic trading are unverified until the
-  connector is authorized and exercised.
+- **Order placement may require human confirmation Robinhood itself
+  enforces** (see "The real `RobinHood_Trade` tool surface" above) — if so,
+  no code in this package can make execution fully autonomous; the
+  configuration table's "no per-trade human approval" may not be achievable
+  as originally specified. Confirm the actual mechanism before assuming
+  `size_order`'s output can be wired straight into a live order.
+- Robinhood's terms of service for automated/agentic trading via this
+  connector are still unverified even though its tool surface now is.
 - Crypto trades 24/7, equities don't — the cron Routines for each need
   separate schedules.
 

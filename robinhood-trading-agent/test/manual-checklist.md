@@ -20,14 +20,25 @@ the live wiring or your actual risk tolerance for this specific account.
 
 ## 2. Connector authorization
 
-- [ ] Authorize the `RobinHood_Trade` MCP connector in an interactive
+- [x] Authorize the `RobinHood_Trade` MCP connector in an interactive
       Claude session (`claude mcp` / `/mcp`, or claude.ai connector
-      settings).
-- [ ] Inspect its actual tool list/schemas (`tools/list`). Confirm they
-      match what this package assumes (`get_quote`, `get_history`,
-      `get_account`, `get_positions`, `place_order`, `cancel_order`,
-      `get_order_status`) — adjust `README.md`'s architecture section and
-      the Claude session's orchestration prompt if they differ.
+      settings). **Done** — real tool list confirmed (67 tools); see
+      README.md's "The real `RobinHood_Trade` tool surface" section for the
+      actual names (`get_accounts`, `get_equity_quotes`/`historicals`,
+      `place_equity_order`/`place_crypto_order`, etc. — quite different
+      from this package's original placeholder assumptions).
+- [ ] **Resolve the order-confirmation question before going further.**
+      Every `place_*_order` tool is paired with a `review_*`/`preview_*`
+      call and "requires explicit user confirmation before firing" per the
+      connector session that inspected it. Determine whether that's a
+      human-facing UI prompt (which caps how autonomous execution can
+      actually be) or a parameter the calling agent supplies itself. This
+      may mean the "fully autonomous, no per-trade approval" goal isn't
+      achievable as originally specified through this connector — surface
+      that to the user rather than assuming either way.
+- [ ] Confirm `account_number` (equities/options) vs `rhs_account_number`
+      (crypto) are correctly threaded through wherever this package's
+      tools are called with account context.
 
 ## 3. Dry-run against real market data
 
