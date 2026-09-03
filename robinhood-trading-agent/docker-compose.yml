@@ -24,6 +24,12 @@ services:
       # above) is what actually takes effect inside the container.
       STATE_DIR: /app/state
       AUDIT_LOG_DIR: /app/runs
+    extra_hosts:
+      # host.docker.internal resolves automatically on Docker Desktop
+      # (Mac/Windows) but NOT on plain Docker Engine on Linux unless
+      # mapped explicitly — this makes the README's LLM_GATEWAY_URL
+      # guidance actually work on a Linux Docker host too.
+      - "host.docker.internal:host-gateway"
     volumes:
       # Safety/halt state, PDT trade log, and learned weights must survive
       # a container restart or rebuild. SafetyStateStore fails closed
@@ -58,10 +64,13 @@ services:
     # interpolates every variable in the file during config parsing,
     # before profile filtering decides which services actually start, so
     # a required-variable guard here would break a plain `docker compose
-    # up` even when this service is never started. Leaving the token
-    # unset here just makes cloudflared itself fail with its own clear
-    # error, and only when --profile tunnel is actually used.
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
+    # up` even when this service is never started. Using `:-` (empty
+    # default) rather than a bare reference for the same reason: it
+    # avoids compose's "variable is not set" warning on a plain
+    # `docker compose up` too, with identical runtime behavior — an empty
+    # token still makes cloudflared itself fail clearly, and only when
+    # --profile tunnel is actually used.
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN:-}"]
     depends_on:
       - mcp
     restart: unless-stopped

@@ -176,6 +176,7 @@ cd robinhood-trading-agent
 cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum
 docker compose up -d --build
 curl -i http://localhost:8787/mcp   # expect 401 with no Authorization header
+# (8787 is MCP_HTTP_PORT's default — swap it in if you changed that in .env)
 ```
 
 `docker-compose.yml` mounts named volumes at `/app/state` and `/app/runs`
