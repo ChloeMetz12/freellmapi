@@ -28,14 +28,21 @@ const DEFAULT_STATE: SafetyState = {
   pdtTrades: [],
 };
 
-const pdtTradeRecordSchema = z.object({ symbol: z.string(), dateIso: z.string() });
+// Both dateIso fields are compared against a Set of "YYYY-MM-DD" strings
+// built by pdt.ts's lastNBusinessDays — a value in any other format would
+// simply never match that Set (window.has(...) silently returns false)
+// rather than erroring, undercounting PDT trades and potentially letting
+// the rolling-window limit be bypassed on corrupted-but-parseable state.
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a YYYY-MM-DD date string");
+
+const pdtTradeRecordSchema = z.object({ symbol: z.string(), dateIso: isoDateSchema });
 
 /** Validates the on-disk shape, not just that it's parseable JSON — a corrupted-but-valid-JSON file (e.g. dayStartEquity as a string) must not flow through into NaN equity-loss math and silently disable the kill-switch. */
 const safetyStateSchema = z.object({
   manuallyHalted: z.boolean(),
   autoHaltReason: z.string().nullable(),
   dayStartEquity: z.number().nullable(),
-  dayStartDateIso: z.string().nullable(),
+  dayStartDateIso: isoDateSchema.nullable(),
   pdtTrades: z.array(pdtTradeRecordSchema),
 });
 

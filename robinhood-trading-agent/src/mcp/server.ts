@@ -10,13 +10,13 @@
  * the calling Claude session runs remotely and needs a stable URL to hit
  * on every cron-triggered firing.
  */
-import { timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
+import { tokensMatch } from "./auth.js";
 import { getSentimentInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema } from "../schema/tools.js";
 
 const env = loadEnv();
@@ -121,18 +121,6 @@ function buildServer(): McpServer {
   );
 
   return server;
-}
-
-/** Timing-safe comparison — a shared-secret bearer token must never be checked with `!==`, which leaks a character-by-character timing signal. */
-function tokensMatch(a: string, b: string): boolean {
-  // Check string length before allocating any Buffers: `a` is the
-  // attacker-controlled Authorization header, so an oversized value
-  // should be rejected without the cost of converting it. Comparing
-  // string .length here (not Buffer byte length) still leaks only length,
-  // same tradeoff as before — it just avoids paying an allocation for a
-  // request that's guaranteed to be rejected anyway.
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 function requireAuth(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {

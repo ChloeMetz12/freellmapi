@@ -1,4 +1,4 @@
-import { writeFileSync, renameSync } from "node:fs";
+import { writeFileSync, renameSync, unlinkSync } from "node:fs";
 
 /**
  * Writes `content` to `filePath` via write-to-temp-then-rename, which
@@ -13,5 +13,18 @@ import { writeFileSync, renameSync } from "node:fs";
 export function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(tmpPath, content);
-  renameSync(tmpPath, filePath);
+  try {
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    // Best-effort cleanup so a rename failure (permissions, transient IO,
+    // cross-device rename) doesn't leave stray *.tmp files accumulating
+    // on disk — the original error is what the caller needs to see, so
+    // swallow any failure from the cleanup itself.
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
 }

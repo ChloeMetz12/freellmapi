@@ -47,4 +47,24 @@ describe("SafetyStateStore", () => {
     expect(store.get().manuallyHalted).toBe(true);
     expect(store.get().autoHaltReason).toMatch(/failed validation/);
   });
+
+  it("fails CLOSED when dayStartDateIso is not a YYYY-MM-DD string", () => {
+    dir = mkdtempSync(join(tmpdir(), "safety-state-"));
+    writeFileSync(join(dir, "safety-state.json"), JSON.stringify({ manuallyHalted: false, autoHaltReason: null, dayStartEquity: 10_000, dayStartDateIso: "not-a-date", pdtTrades: [] }));
+
+    const store = new SafetyStateStore(dir);
+    expect(store.get().manuallyHalted).toBe(true);
+  });
+
+  it("fails CLOSED when a PDT trade record's dateIso is not YYYY-MM-DD, instead of silently undercounting day trades", () => {
+    // pdt.ts's window is a Set of "YYYY-MM-DD" strings — a differently
+    // formatted dateIso would just never match it (window.has(...) always
+    // false), silently undercounting trades and potentially bypassing the
+    // PDT limit, rather than erroring anywhere obvious.
+    dir = mkdtempSync(join(tmpdir(), "safety-state-"));
+    writeFileSync(join(dir, "safety-state.json"), JSON.stringify({ manuallyHalted: false, autoHaltReason: null, dayStartEquity: 10_000, dayStartDateIso: "2026-09-02", pdtTrades: [{ symbol: "AAPL", dateIso: "2026-09-02T00:00:00.000Z" }] }));
+
+    const store = new SafetyStateStore(dir);
+    expect(store.get().manuallyHalted).toBe(true);
+  });
 });

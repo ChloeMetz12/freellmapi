@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteFileSync } from "../../src/util/atomicWrite.js";
@@ -34,5 +34,18 @@ describe("atomicWriteFileSync", () => {
     atomicWriteFileSync(filePath, "content");
     expect(existsSync(filePath)).toBe(true);
     expect(readdirSync(dir)).toEqual(["test.json"]);
+  });
+
+  it("cleans up the temp file if the rename itself fails, instead of leaving it behind", () => {
+    dir = mkdtempSync(join(tmpdir(), "atomic-write-"));
+    // Renaming a file onto an existing directory always fails (EISDIR/
+    // ENOTDIR) — a reliable way to force renameSync to throw without
+    // mocking fs internals.
+    const targetPath = join(dir, "target");
+    mkdirSync(targetPath);
+
+    expect(() => atomicWriteFileSync(targetPath, "content")).toThrow();
+    // Only the pre-existing "target" directory should remain — no stray *.tmp file.
+    expect(readdirSync(dir)).toEqual(["target"]);
   });
 });
