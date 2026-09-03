@@ -18,7 +18,7 @@ const cachedSentimentSchema = z.object({
     scratchpad: z.string(),
     degraded: z.boolean(),
   }),
-  computedAt: z.string(),
+  computedAt: z.string().datetime({ offset: true }),
 });
 
 /**

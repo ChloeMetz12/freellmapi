@@ -101,6 +101,7 @@ export async function computeSentiment(marketTrend: MarketTrendSnapshot, { env }
     const parsed = sentimentSchema.parse(raw);
     return { ...parsed, degraded: false };
   } catch (err) {
-    return NEUTRAL_SENTIMENT(`LLM sentiment call failed or returned invalid output: ${(err as Error).message}`);
+    const reason = err instanceof Error ? err.message : String(err);
+    return NEUTRAL_SENTIMENT(`LLM sentiment call failed or returned invalid output: ${reason}`);
   }
 }
