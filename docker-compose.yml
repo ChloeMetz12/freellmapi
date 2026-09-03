@@ -35,5 +35,21 @@ services:
       start_period: 15s
       retries: 3
 
+  # Optional: exposes the app through a Cloudflare Tunnel instead of a bound
+  # host port. Opt in with `docker compose --profile tunnel up -d`. Requires
+  # TUNNEL_TOKEN in .env (from the Zero Trust dashboard) and, since the app has
+  # no built-in auth beyond the unified API key, a Cloudflare Access policy on
+  # the public hostname — see docker/README.md.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - freellmapi
+    restart: unless-stopped
+    profiles:
+      - tunnel
+
 volumes:
   freellmapi-data:
