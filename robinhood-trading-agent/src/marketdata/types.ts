@@ -15,6 +15,15 @@ export interface OhlcvBar {
 }
 
 export function assertSortedAscending(bars: OhlcvBar[]): void {
+  for (let i = 0; i < bars.length; i++) {
+    // An invalid timestamp parses to NaN, and NaN < NaN (and NaN > NaN)
+    // are both false — the ordering comparison below would silently never
+    // trigger for it, letting unsorted/garbage data straight through to
+    // indicators that assume valid, ordered timestamps.
+    if (Number.isNaN(new Date(bars[i].timestamp).getTime())) {
+      throw new Error(`OHLCV bar ${i} has an unparseable timestamp: ${bars[i].timestamp}`);
+    }
+  }
   for (let i = 1; i < bars.length; i++) {
     if (new Date(bars[i].timestamp).getTime() < new Date(bars[i - 1].timestamp).getTime()) {
       throw new Error(`OHLCV bars must be sorted oldest-first; bar ${i} (${bars[i].timestamp}) precedes bar ${i - 1} (${bars[i - 1].timestamp})`);

@@ -125,13 +125,14 @@ function buildServer(): McpServer {
 
 /** Timing-safe comparison — a shared-secret bearer token must never be checked with `!==`, which leaks a character-by-character timing signal. */
 function tokensMatch(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  // Different lengths can't be compared by timingSafeEqual (it throws) —
-  // returning early here does leak token length, but that's a far smaller
-  // leak than a prefix-comparable equality check.
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  // Check string length before allocating any Buffers: `a` is the
+  // attacker-controlled Authorization header, so an oversized value
+  // should be rejected without the cost of converting it. Comparing
+  // string .length here (not Buffer byte length) still leaks only length,
+  // same tradeoff as before — it just avoids paying an allocation for a
+  // request that's guaranteed to be rejected anyway.
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 function requireAuth(req: import("express").Request, res: import("express").Response, next: import("express").NextFunction) {

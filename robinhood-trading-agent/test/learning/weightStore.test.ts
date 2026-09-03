@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WeightStore } from "../../src/learning/weightStore.js";
 import { DEFAULT_SIGNAL_WEIGHTS } from "../../src/strategy/types.js";
+import { RISK_LIMITS } from "../../src/config/riskLimits.js";
 
 let dir: string | undefined;
 
@@ -42,6 +43,34 @@ describe("WeightStore", () => {
     writeFileSync(join(dir, "signal-weights.json"), "{not valid json");
 
     expect(new WeightStore(dir).get()).toEqual(DEFAULT_SIGNAL_WEIGHTS);
+  });
+
+  it("falls back to the default for a finite but out-of-bounds on-disk value, not just non-numeric ones", () => {
+    // A corrupted-but-parseable file with e.g. trend: 1000000 is a valid
+    // finite number, but it's outside [minWeight, maxWeight] — the only
+    // range applyLearningUpdate's own clamp ever produces. Letting it
+    // through would silently bypass that bound entirely.
+    dir = mkdtempSync(join(tmpdir(), "weight-store-"));
+    writeFileSync(join(dir, "signal-weights.json"), JSON.stringify({ ...DEFAULT_SIGNAL_WEIGHTS, trend: RISK_LIMITS.learning.maxWeight + 1000 }));
+
+    const weights = new WeightStore(dir).get();
+    expect(weights.trend).toBe(DEFAULT_SIGNAL_WEIGHTS.trend);
+  });
+
+  it("falls back to the default for a negative on-disk value", () => {
+    dir = mkdtempSync(join(tmpdir(), "weight-store-"));
+    writeFileSync(join(dir, "signal-weights.json"), JSON.stringify({ ...DEFAULT_SIGNAL_WEIGHTS, trend: -5 }));
+
+    const weights = new WeightStore(dir).get();
+    expect(weights.trend).toBe(DEFAULT_SIGNAL_WEIGHTS.trend);
+  });
+
+  it("accepts a value exactly at the min/max bound (a legitimately clamped learned weight)", () => {
+    dir = mkdtempSync(join(tmpdir(), "weight-store-"));
+    writeFileSync(join(dir, "signal-weights.json"), JSON.stringify({ ...DEFAULT_SIGNAL_WEIGHTS, trend: RISK_LIMITS.learning.maxWeight }));
+
+    const weights = new WeightStore(dir).get();
+    expect(weights.trend).toBe(RISK_LIMITS.learning.maxWeight);
   });
 
   it("ignores unknown keys rather than polluting the weights object", () => {

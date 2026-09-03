@@ -1,6 +1,7 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { atomicWriteFileSync } from "../util/atomicWrite.js";
 
 export interface PdtTradeRecord {
   symbol: string;
@@ -84,6 +85,6 @@ export class SafetyStateStore {
 
   save(state: SafetyState): void {
     this.state = state;
-    writeFileSync(this.filePath, JSON.stringify(state, null, 2));
+    atomicWriteFileSync(this.filePath, JSON.stringify(state, null, 2));
   }
 }

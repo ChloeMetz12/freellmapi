@@ -1,5 +1,6 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFileSync } from "../util/atomicWrite.js";
 import type { ClosedTradeSummary } from "./reflection.js";
 import type { WeightAdjustment } from "./update.js";
 
@@ -35,7 +36,7 @@ export class TradeHistoryStore {
 
   append(entry: TradeHistoryEntry): void {
     this.entries = [...this.entries, entry].slice(-MAX_HISTORY);
-    writeFileSync(this.filePath, JSON.stringify(this.entries, null, 2));
+    atomicWriteFileSync(this.filePath, JSON.stringify(this.entries, null, 2));
   }
 
   recent(n = 10): TradeHistoryEntry[] {

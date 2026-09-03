@@ -1,6 +1,7 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { atomicWriteFileSync } from "../util/atomicWrite.js";
 import type { SentimentResult } from "./types.js";
 
 interface CachedSentiment {
@@ -57,6 +58,6 @@ export class SentimentCache {
 
   set(result: SentimentResult): void {
     const cached: CachedSentiment = { result, computedAt: new Date().toISOString() };
-    writeFileSync(this.filePath, JSON.stringify(cached, null, 2));
+    atomicWriteFileSync(this.filePath, JSON.stringify(cached, null, 2));
   }
 }

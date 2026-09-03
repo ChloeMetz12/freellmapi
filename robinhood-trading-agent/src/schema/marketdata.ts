@@ -1,12 +1,15 @@
 import { z } from "zod";
 
 export const ohlcvBarSchema = z.object({
-  timestamp: z.string(),
-  open: z.number(),
-  high: z.number(),
-  low: z.number(),
-  close: z.number(),
-  volume: z.number(),
+  // A real ISO datetime, not any string — an unparseable timestamp would
+  // otherwise pass schema validation and only get caught later (if at
+  // all) by assertSortedAscending's own NaN guard.
+  timestamp: z.string().datetime({ offset: true }),
+  open: z.number().finite(),
+  high: z.number().finite(),
+  low: z.number().finite(),
+  close: z.number().finite(),
+  volume: z.number().finite(),
 });
 
 export const assetClassSchema = z.enum(["equity", "crypto"]);

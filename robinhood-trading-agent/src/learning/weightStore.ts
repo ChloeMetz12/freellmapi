@@ -1,15 +1,27 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { RISK_LIMITS } from "../config/riskLimits.js";
+import { atomicWriteFileSync } from "../util/atomicWrite.js";
 import { DEFAULT_SIGNAL_WEIGHTS, SIGNAL_KEYS, type SignalWeights } from "../strategy/types.js";
 
-/** Keeps only the keys/values from `raw` that are actually finite numbers for a known signal — a corrupted-but-valid-JSON file (e.g. `{"trend":"1"}` or a NaN) must not flow through into computeSignal's weighted-average arithmetic. */
+/**
+ * Keeps only the keys/values from `raw` that are finite numbers *within
+ * the bounds `applyLearningUpdate` itself enforces* — a corrupted-but-
+ * valid-JSON file (e.g. `{"trend":"1"}`, or a legally-finite but
+ * wildly-out-of-range `{"trend":1000000}`) must not flow through into
+ * computeSignal's weighted-average arithmetic or silently bypass the
+ * min/max clamp that's supposed to be the only way a weight moves.
+ * Anything outside [minWeight, maxWeight] is treated exactly like a
+ * non-numeric value: dropped, falling back to the default for that key.
+ */
 function sanitizeWeights(raw: unknown): Partial<SignalWeights> {
   if (typeof raw !== "object" || raw === null) return {};
   const record = raw as Record<string, unknown>;
+  const { minWeight, maxWeight } = RISK_LIMITS.learning;
   const sanitized: Partial<SignalWeights> = {};
   for (const key of SIGNAL_KEYS) {
     const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= minWeight && value <= maxWeight) {
       sanitized[key] = value;
     }
   }
@@ -50,6 +62,6 @@ export class WeightStore {
 
   save(weights: SignalWeights): void {
     this.weights = weights;
-    writeFileSync(this.filePath, JSON.stringify(weights, null, 2));
+    atomicWriteFileSync(this.filePath, JSON.stringify(weights, null, 2));
   }
 }
