@@ -5,14 +5,16 @@ services:
       # Defaults to localhost-only — reachable from this machine (for the
       # curl auth check in the manual checklist) but not the LAN or
       # internet. The cloudflared service below reaches this container
-      # over the internal compose network (http://mcp:8787), not this
-      # published port, so a NAT'd host never needs to change this.
+      # over the internal compose network (http://mcp:${MCP_HTTP_PORT:-8787}),
+      # not this published port, so a NAT'd host never needs to change this.
       # A host with its own public IP/hostname that wants to skip the
       # tunnel and expose this port directly should set
       # MCP_PUBLISH_BIND=0.0.0.0 (or a specific interface IP) in .env —
       # see README.md's "Docker" section. Still gated by MCP_AUTH_TOKEN
-      # either way.
-      - "${MCP_PUBLISH_BIND:-127.0.0.1}:8787:8787"
+      # either way. Both sides use MCP_HTTP_PORT (same default as
+      # src/config/env.ts, 8787) so changing it in .env can't desync the
+      # published port from the port the server actually listens on.
+      - "${MCP_PUBLISH_BIND:-127.0.0.1}:${MCP_HTTP_PORT:-8787}:${MCP_HTTP_PORT:-8787}"
     env_file:
       - .env
     environment:
@@ -44,8 +46,14 @@ services:
   # instead once CLOUDFLARE_TUNNEL_TOKEN is set in .env — see README.md's
   # "Docker" section for how to create the tunnel and get that token.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned rather than :latest, for reproducible deploys — bump
+    # deliberately, not silently on every rebuild. Check
+    # https://github.com/cloudflare/cloudflared/releases for newer tags.
+    image: cloudflare/cloudflared:2026.8.3
     profiles: ["tunnel"]
+    # Exec form (YAML list), not a shell string — avoids the token going
+    # through shell parsing/quoting.
+    #
     # Deliberately NOT `${CLOUDFLARE_TUNNEL_TOKEN:?...}` — compose
     # interpolates every variable in the file during config parsing,
     # before profile filtering decides which services actually start, so
@@ -53,7 +61,7 @@ services:
     # up` even when this service is never started. Leaving the token
     # unset here just makes cloudflared itself fail with its own clear
     # error, and only when --profile tunnel is actually used.
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN}"]
     depends_on:
       - mcp
     restart: unless-stopped

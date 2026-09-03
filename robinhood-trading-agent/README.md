@@ -216,9 +216,10 @@ opened on your router at all):
 2. Put that token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`.
 3. Still on the tunnel's setup page, add a **Public Hostname**: pick a
    subdomain of a zone already on your Cloudflare account (e.g.
-   `rht-mcp.yourdomain.com`), service type **HTTP**, URL `mcp:8787` — that
-   hostname, not `localhost`, since `cloudflared` reaches the `mcp`
-   service over the compose network by its service name.
+   `rht-mcp.yourdomain.com`), service type **HTTP**, URL `mcp:8787` (or
+   `mcp:<your MCP_HTTP_PORT>` if you changed it from the default in
+   `.env`) — that hostname, not `localhost`, since `cloudflared` reaches
+   the `mcp` service over the compose network by its service name.
 4. Start both services with the tunnel enabled:
    `docker compose --profile tunnel up -d --build` (plain `docker compose
    up` never starts `cloudflared` and never requires
