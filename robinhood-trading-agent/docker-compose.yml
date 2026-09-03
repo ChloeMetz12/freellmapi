@@ -46,7 +46,14 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     profiles: ["tunnel"]
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env before using --profile tunnel — see README.md Docker section}
+    # Deliberately NOT `${CLOUDFLARE_TUNNEL_TOKEN:?...}` — compose
+    # interpolates every variable in the file during config parsing,
+    # before profile filtering decides which services actually start, so
+    # a required-variable guard here would break a plain `docker compose
+    # up` even when this service is never started. Leaving the token
+    # unset here just makes cloudflared itself fail with its own clear
+    # error, and only when --profile tunnel is actually used.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - mcp
     restart: unless-stopped
