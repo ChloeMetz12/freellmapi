@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "miyo": {
+      "type": "http",
+      "url": "https://relay.miyo.md/mcp"
+    }
+  }
+}
