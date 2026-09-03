@@ -90,13 +90,19 @@ function sentimentVote(sentimentScore: number | null): SignalVote | null {
   return { key: "sentiment", vote: clamp(sentimentScore, -1, 1), detail: `sentiment score=${sentimentScore.toFixed(2)}` };
 }
 
+function socialChatterVote(chatterScore: number | null): SignalVote | null {
+  if (chatterScore === null) return null;
+  return { key: "social_chatter", vote: clamp(chatterScore, -1, 1), detail: `StockTwits/X chatter score=${chatterScore.toFixed(2)}` };
+}
+
 /**
- * Combines candlestick + indicator + sentiment signals into one decision.
- * `weights` come from `learning/weightStore` — this function is otherwise
- * pure/deterministic so it's cheap to unit test and to run in the backtest
- * harness against historical bars.
+ * Combines candlestick + indicator + macro-sentiment + per-symbol social-
+ * chatter signals into one decision. `weights` come from
+ * `learning/weightStore` — this function is otherwise pure/deterministic
+ * so it's cheap to unit test and to run in the backtest harness against
+ * historical bars.
  */
-export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, weights: SignalWeights = DEFAULT_SIGNAL_WEIGHTS): Decision {
+export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, socialChatterScore: number | null = null, weights: SignalWeights = DEFAULT_SIGNAL_WEIGHTS): Decision {
   const closes = bars.map((b) => b.close);
   const { trend, ema9, ema21 } = trendFromEma(closes);
 
@@ -107,6 +113,7 @@ export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, w
     macdVote(closes),
     bollingerVote(closes),
     sentimentVote(sentimentScore),
+    socialChatterVote(socialChatterScore),
   ];
 
   const contributingSignals = votes

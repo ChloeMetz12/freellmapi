@@ -6,6 +6,10 @@ export const getSentimentInputSchema = z.object({
   marketTrend: marketTrendSchema,
 });
 
+export const getSymbolChatterInputSchema = z.object({
+  symbol: z.string().min(1),
+});
+
 export const computeDecisionInputSchema = z.object({
   symbol: z.string().min(1),
   // 21 bars is the real floor for EMA(21)/RSI(14)/ATR(14)/Bollinger(20) to

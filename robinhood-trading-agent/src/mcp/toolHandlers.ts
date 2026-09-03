@@ -10,6 +10,8 @@ import { evaluateSafety, halt as haltSafety, resume as resumeSafety } from "../s
 import { canRecordDayTrade, recordDayTrade } from "../safety/pdt.js";
 import { computeSentiment } from "../sentiment/sentimentEngine.js";
 import { SentimentCache } from "../sentiment/sentimentCache.js";
+import { computeSymbolChatter } from "../social/chatterEngine.js";
+import { ChatterCache } from "../social/chatterCache.js";
 import { computeSignal } from "../strategy/signal.js";
 import { computePositionSize } from "../execution/sizing.js";
 import { buildOrderPlan } from "../execution/orderPlan.js";
@@ -23,6 +25,7 @@ export class ToolHandlers {
   private readonly weightStore: WeightStore;
   private readonly safetyStore: SafetyStateStore;
   private readonly sentimentCache: SentimentCache;
+  private readonly chatterCache: ChatterCache;
   private readonly tradeHistory: TradeHistoryStore;
   private readonly auditLog: AuditLog;
 
@@ -30,6 +33,7 @@ export class ToolHandlers {
     this.weightStore = new WeightStore(env.STATE_DIR);
     this.safetyStore = new SafetyStateStore(env.STATE_DIR);
     this.sentimentCache = new SentimentCache(env.STATE_DIR);
+    this.chatterCache = new ChatterCache(env.STATE_DIR);
     this.tradeHistory = new TradeHistoryStore(env.STATE_DIR);
     this.auditLog = new AuditLog(env.AUDIT_LOG_DIR);
   }
@@ -41,16 +45,42 @@ export class ToolHandlers {
     return result;
   }
 
+  /**
+   * Per-symbol StockTwits/X chatter — unlike get_sentiment (one macro read
+   * shared across the whole watchlist), this varies per symbol, so it's
+   * cached per-symbol with a short TTL (ChatterCache) rather than by a
+   * caller-controlled cadence. Safe to call every compute_decision cycle:
+   * a fresh-enough cached entry is reused without a new fetch, keeping API
+   * usage (especially the paid X tier) bounded.
+   */
+  async getSymbolChatter(symbol: string) {
+    const cached = this.chatterCache.get(symbol);
+    if (cached) return cached;
+
+    const result = await computeSymbolChatter(symbol, { env: this.env });
+    this.chatterCache.set(result);
+    this.auditLog.record({ type: "sentiment", subtype: "social_chatter", ...result });
+    return result;
+  }
+
   computeDecision(symbol: string, bars: OhlcvBar[]) {
     // The MCP schema boundary doesn't (can't, via zod alone) enforce bar
     // ordering — every indicator/pattern detector assumes oldest-first and
     // will silently produce wrong results on newest-first input rather
     // than erroring, so fail fast here instead.
     assertSortedAscending(bars);
-    const cached = this.sentimentCache.get();
-    const sentimentScore = cached ? cached.result.score : null;
-    const decision = computeSignal(bars, sentimentScore, this.weightStore.get());
-    const result = { symbol, mode: this.env.MODE, sentimentUsed: cached ? { score: cached.result.score, computedAt: cached.computedAt, degraded: cached.result.degraded } : null, ...decision };
+    const cachedSentiment = this.sentimentCache.get();
+    const sentimentScore = cachedSentiment ? cachedSentiment.result.score : null;
+    const cachedChatter = this.chatterCache.get(symbol);
+    const chatterScore = cachedChatter ? cachedChatter.score : null;
+    const decision = computeSignal(bars, sentimentScore, chatterScore, this.weightStore.get());
+    const result = {
+      symbol,
+      mode: this.env.MODE,
+      sentimentUsed: cachedSentiment ? { score: cachedSentiment.result.score, computedAt: cachedSentiment.computedAt, degraded: cachedSentiment.result.degraded } : null,
+      chatterUsed: cachedChatter ? { score: cachedChatter.score, messageCount: cachedChatter.messageCount, degraded: cachedChatter.degraded } : null,
+      ...decision,
+    };
     this.auditLog.record({ type: "decision", ...result });
     return result;
   }

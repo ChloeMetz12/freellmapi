@@ -1,20 +1,14 @@
 export type AssetClass = "equity" | "crypto";
 
-export interface WatchedSymbol {
-  symbol: string;
-  assetClass: AssetClass;
-}
-
 /**
- * Placeholder default watchlist. This is a config decision the user should
- * override, not something the agent should silently trade with — replace
- * with the actual symbols to run the strategy against.
+ * Deliberately no watchlist/allowlist here: per the user's explicit
+ * choice, the symbol universe is unrestricted — compute_decision,
+ * size_order, and record_outcome all accept any symbol the calling
+ * session passes, with no allowlist check anywhere in this package. See
+ * README's "Unrestricted symbol universe" section for what backstops
+ * still apply (safety/ guardrails are symbol-agnostic and check every
+ * order regardless of which symbol it's for).
  */
-export const DEFAULT_WATCHLIST: WatchedSymbol[] = [
-  { symbol: "SPY", assetClass: "equity" },
-  { symbol: "QQQ", assetClass: "equity" },
-  { symbol: "BTC-USD", assetClass: "crypto" },
-];
 
 /** Index/ETF proxies used for the market-trend half of sentiment/. */
 export const MARKET_TREND_PROXIES = {

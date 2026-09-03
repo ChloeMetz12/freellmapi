@@ -1,14 +1,13 @@
 import { z } from "zod";
 import type { Env } from "../config/env.js";
+import { redactSecrets } from "../util/redact.js";
 import { callGatewayJson } from "./llmClient.js";
 import { FinnhubMarketNews } from "./providers/finnhubMarketNews.js";
 import { NewsApiWorldNews } from "./providers/newsApiWorldNews.js";
+import { CoinGeckoMarket } from "./providers/coinGeckoMarket.js";
+import { BenzingaNews } from "./providers/benzingaNews.js";
+import { XMacroNews } from "./providers/xMacroNews.js";
 import { NEUTRAL_SENTIMENT, type MarketTrendSnapshot, type NewsHeadline, type SentimentResult } from "./types.js";
-
-/** Strips API-key query params from a string before it's logged anywhere — a fetch-level error's message/stack can embed the full request URL, ?token=/?apiKey= value included. Exported for direct unit testing. */
-export function redactSecrets(text: string): string {
-  return text.replace(/([?&](?:token|apiKey)=)[^&\s"']+/gi, "$1[REDACTED]");
-}
 
 const SYSTEM_PROMPT = `You analyze market-relevant news and macro/political context for sentiment
 that could affect near-term equity and crypto prices. You never recommend a
@@ -77,11 +76,18 @@ export async function safelyFetch(name: string, fn: () => Promise<NewsHeadline[]
 }
 
 export interface SentimentEngineDeps {
-  env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GATEWAY_API_KEY" | "SENTIMENT_MODEL" | "FINNHUB_API_KEY" | "NEWSAPI_KEY">;
+  env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GATEWAY_API_KEY" | "SENTIMENT_MODEL" | "FINNHUB_API_KEY" | "NEWSAPI_KEY" | "BENZINGA_API_KEY" | "X_BEARER_TOKEN" | "COINGECKO_API_KEY">;
 }
 
 export async function computeSentiment(marketTrend: MarketTrendSnapshot, { env }: SentimentEngineDeps): Promise<SentimentResult> {
-  const providers = [env.FINNHUB_API_KEY ? () => safelyFetch("finnhub", () => new FinnhubMarketNews(env.FINNHUB_API_KEY!).fetchHeadlines()) : null, env.NEWSAPI_KEY ? () => safelyFetch("newsapi", () => new NewsApiWorldNews(env.NEWSAPI_KEY!).fetchHeadlines()) : null].filter((p): p is () => Promise<NewsHeadline[]> => p !== null);
+  const providers = [
+    env.FINNHUB_API_KEY ? () => safelyFetch("finnhub", () => new FinnhubMarketNews(env.FINNHUB_API_KEY!).fetchHeadlines()) : null,
+    env.NEWSAPI_KEY ? () => safelyFetch("newsapi", () => new NewsApiWorldNews(env.NEWSAPI_KEY!).fetchHeadlines()) : null,
+    env.BENZINGA_API_KEY ? () => safelyFetch("benzinga", () => new BenzingaNews(env.BENZINGA_API_KEY!).fetchHeadlines()) : null,
+    env.X_BEARER_TOKEN ? () => safelyFetch("x-macro", () => new XMacroNews(env.X_BEARER_TOKEN!).fetchHeadlines()) : null,
+    // CoinGecko needs no key for its free-tier market endpoints used here.
+    () => safelyFetch("coingecko", () => new CoinGeckoMarket(env.COINGECKO_API_KEY).fetchHeadlines()),
+  ].filter((p): p is () => Promise<NewsHeadline[]> => p !== null);
 
   if (providers.length === 0) {
     return NEUTRAL_SENTIMENT("no news provider API keys configured");

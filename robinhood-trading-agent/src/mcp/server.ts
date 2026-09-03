@@ -17,7 +17,7 @@ import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
 import { tokensMatch } from "./auth.js";
-import { getSentimentInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema } from "../schema/tools.js";
+import { getSentimentInputSchema, getSymbolChatterInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema } from "../schema/tools.js";
 
 const env = loadEnv();
 applyEnvRiskOverrides(env);
@@ -41,10 +41,20 @@ function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "get_symbol_chatter",
+    {
+      title: "Refresh StockTwits/X chatter for one symbol",
+      description: "Fetches StockTwits and X posts mentioning the given ticker and combines them via an LLM reasoning call into a bounded -1..1 chatter score, cached per-symbol for a few minutes (safe to call every cycle — a fresh-enough cached read is reused, not re-fetched). This is the noisiest, most manipulable input in the strategy (see README) — call it before compute_decision for the same symbol so that decision can use it.",
+      inputSchema: getSymbolChatterInputSchema.shape,
+    },
+    async (input) => jsonResult(await handlers.getSymbolChatter(input.symbol)),
+  );
+
+  server.registerTool(
     "compute_decision",
     {
       title: "Compute a BUY/SELL/HOLD trading decision",
-      description: "Runs the candlestick/indicator/sentiment strategy over the given OHLCV bars (fetch these via RobinHood_Trade's own quote/history tools first) using the current online-learned signal weights. Returns an action, confidence, and which signals drove it. This does not place any order.",
+      description: "Runs the candlestick/indicator/sentiment/chatter strategy over the given OHLCV bars (fetch these via RobinHood_Trade's own quote/history tools first) using the current online-learned signal weights. Uses whatever get_sentiment/get_symbol_chatter results are already cached for this symbol — call those first if you want this cycle to reflect fresh reads. Returns an action, confidence, and which signals drove it. This does not place any order.",
       inputSchema: computeDecisionInputSchema.shape,
     },
     async (input) => jsonResult(handlers.computeDecision(input.symbol, input.bars)),

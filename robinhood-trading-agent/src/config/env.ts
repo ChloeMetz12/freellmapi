@@ -24,6 +24,13 @@ const envSchema = z.object({
 
   FINNHUB_API_KEY: z.string().optional(),
   NEWSAPI_KEY: z.string().optional(),
+  BENZINGA_API_KEY: z.string().optional(),
+  COINGECKO_API_KEY: z.string().optional(),
+  // Used for both macro world/finance news (src/sentiment/providers/xMacroNews.ts)
+  // and per-symbol ticker chatter (src/social/providers/xTickerChatter.ts) —
+  // requires the paid Basic API tier or above; the free tier's read limits
+  // are too low for search at trading cadence.
+  X_BEARER_TOKEN: z.string().optional(),
 
   LLM_GATEWAY_URL: z.string().url().default("http://localhost:3000/v1"),
   LLM_GATEWAY_API_KEY: z.string().optional(),

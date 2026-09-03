@@ -26,8 +26,8 @@ was written:
 | Learning | Fully autonomous online learning — signal weights adapt in production, no human gate before a change takes effect |
 | Position sizing | No hard per-trade cap — confidence- and volatility-scaled, can use full available buying power |
 | Daily loss kill-switch | Hard halt at **10% of account equity lost in a day** (`DAILY_LOSS_HALT_PCT`) |
-| Asset universe | Equities + crypto + **margin/leverage** |
-| Decision inputs | Candlestick patterns + technical indicators + market-trend and world-news sentiment |
+| Asset universe | Equities + crypto + **margin/leverage**, **unrestricted symbol universe** — no watchlist/allowlist anywhere in this package (see "Unrestricted symbol universe" below) |
+| Decision inputs | Candlestick patterns + technical indicators + market-trend/world-news sentiment + **per-symbol StockTwits/X social chatter** (see "Social chatter" below — the noisiest, most manipulable input in the strategy) |
 
 If that's not the configuration you want, **do not just flip `MODE=live`** —
 re-read "Open risks" below first, and see `src/config/riskLimits.ts` /
@@ -185,6 +185,59 @@ No hard per-trade cap, per the configuration above — but a noisy signal or
 an unusually volatile symbol sizes down automatically rather than always
 swinging for the full balance.
 
+## Unrestricted symbol universe
+
+Per the user's explicit choice, there is no watchlist or allowlist anywhere
+in this package — `compute_decision`, `size_order`, and `record_outcome` all
+accept any symbol the calling session passes them. `src/config/watchlist.ts`
+intentionally exports nothing but the `AssetClass` type and the index/ETF
+proxy symbols used for the market-trend snapshot; there used to be a
+`DEFAULT_WATCHLIST` placeholder there, but it was never actually enforced
+anywhere in the code, so it was removed rather than left as a misleading
+suggestion of a restriction that didn't exist.
+
+What this means in practice: the strategy will evaluate literally any
+symbol the orchestrating session feeds it OHLCV bars for, and if the
+combined signal crosses the decision threshold, will size and (once wired
+to a live order call) attempt to trade it — including a symbol nobody
+specifically chose to watch, a thinly-traded small-cap, or a low-float
+crypto token. The only backstops are the symbol-agnostic ones in
+`safety/` (daily-loss kill-switch, margin-call guard, PDT counting) — none
+of them limit *which* symbols can be traded, only how much damage a bad
+call can do before the kill-switch trips. See "Social chatter" below and
+"Open risks" for why this combination needs to be understood, not just
+enabled.
+
+## Social chatter (StockTwits/X)
+
+A `social_chatter` signal (`get_symbol_chatter` tool,
+`src/social/chatterEngine.ts`) reads recent StockTwits messages and X posts
+mentioning a specific ticker and reasons over them into a bounded score —
+the same structured-output/scratchpad/degrade-to-neutral pattern as the
+macro `sentiment` signal (see `src/sentiment/sentimentEngine.ts`), including
+its own system prompt that explicitly names pump-and-dump/bot-repetition
+patterns to watch for before trusting one-sided chatter.
+
+- **StockTwits**: no API key needed for its public per-symbol stream;
+  messages sometimes carry the author's own bullish/bearish tag, which the
+  LLM is told to weigh against the free-text tone (agreement vs. divergence
+  is itself a signal).
+- **X ticker search** (`X_BEARER_TOKEN`): cashtag search (`$SYMBOL`) for the
+  given ticker. Requires the paid Basic API tier or above.
+- **Result is cached per-symbol** (`src/social/chatterCache.ts`, 5-minute
+  TTL by default) so calling `get_symbol_chatter` every `compute_decision`
+  cycle for the same symbol doesn't re-fetch or re-call the LLM every time —
+  important for staying within the paid X tier's rate limits.
+- **Starts at a lower default weight (0.5)** than every other signal in
+  `DEFAULT_SIGNAL_WEIGHTS` — it only gains more influence over time if
+  `learning/`'s bounded update rule finds it's actually been right, the same
+  mechanism every other signal is subject to. It is not trusted more than
+  that just because it exists.
+
+This is, bluntly, the single most manipulable input in the whole strategy —
+see "Open risks" for why, especially combined with the unrestricted symbol
+universe above.
+
 ## Self-learning
 
 After each closed trade (`record_outcome`), every signal that contributed to
@@ -202,14 +255,31 @@ the audit log — it cannot itself move a weight.
 
 ## News & LLM providers
 
+Macro/market-wide sentiment (`get_sentiment`, `src/sentiment/`):
+
 - **Finnhub** (`FINNHUB_API_KEY`) — financial/company headlines.
 - **NewsAPI.org** (`NEWSAPI_KEY`) — world/political headlines. **Its free
   Developer plan disallows production/commercial use** — get a paid plan or
   swap providers (the `NewsProvider` interface is generic) before `MODE=live`.
+- **Benzinga** (`BENZINGA_API_KEY`, paid) — real-time stock news, popular
+  among algorithmic trading tools for speed.
+- **CoinGecko** (`COINGECKO_API_KEY`, optional) — crypto market data (BTC
+  dominance, trending coins); no key required for the free-tier endpoints
+  used here, synthesized into one summary "headline" per cycle.
+- **X macro news** (`X_BEARER_TOKEN`, paid) — headlines from a curated set
+  of wire-service/official accounts (`src/sentiment/providers/xMacroNews.ts`),
+  not an open keyword search, specifically to avoid pulling in the kind of
+  unverified chatter the sentiment prompt is told to discount.
+
+Per-symbol chatter (`get_symbol_chatter`, `src/social/`) — see "Social
+chatter" above: **StockTwits** (no key) and **X ticker search**
+(`X_BEARER_TOKEN`, same token as macro news, paid tier).
+
 - **LLM**: defaults to this monorepo's own `freellmapi` gateway
-  (`LLM_GATEWAY_URL`, OpenAI-compatible). A failed/invalid response degrades
-  to a neutral sentiment score rather than blocking the trading loop — see
-  `src/sentiment/sentimentEngine.ts`.
+  (`LLM_GATEWAY_URL`, OpenAI-compatible), used for both `get_sentiment` and
+  `get_symbol_chatter`. A failed/invalid response degrades to a neutral
+  score rather than blocking the trading loop — see
+  `src/sentiment/sentimentEngine.ts` and `src/social/chatterEngine.ts`.
 
 Every LLM call in the decision path returns strict, schema-validated JSON
 (never free-form prose parsed after the fact), reasons step-by-step before
@@ -238,6 +308,17 @@ and `src/learning/reflection.ts` for the actual system prompts.
 
 ## Open risks
 
+- **Unrestricted symbol universe + social chatter + margin + no position
+  cap is a compounding combination, not four independent risks.** An
+  autonomous strategy that can act on *any* symbol, partly driven by
+  StockTwits/X chatter (exactly the channel coordinated pump-and-dump
+  schemes and bot networks concentrate in), with margin available and no
+  cap on position size, is a well-known pattern for accounts to lose money
+  fast on a manipulated low-float or meme-adjacent ticker. The
+  `social_chatter` signal's lower default weight, the LLM prompt's explicit
+  instruction to discount repetitive/unsubstantiated chatter, and the daily
+  kill-switch all reduce this risk — none of them eliminate it. This was
+  explicitly chosen after the tradeoff was raised with the user.
 - **No per-trade position cap.** A single bad signal can commit the full
   account balance (plus margin) to one position. The daily kill-switch
   limits *daily* damage, not a single catastrophic intraday move before the

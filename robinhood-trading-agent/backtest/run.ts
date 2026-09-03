@@ -41,7 +41,7 @@ function runBacktest(bars: OhlcvBar[]): Trade[] {
     }
 
     if (!openTrade) {
-      const decision = computeSignal(window, null, DEFAULT_SIGNAL_WEIGHTS);
+      const decision = computeSignal(window, null, null, DEFAULT_SIGNAL_WEIGHTS);
       if (decision.action !== "HOLD") {
         openTrade = { entryIndex: i, direction: decision.action, entryPrice: bars[i].close };
       }

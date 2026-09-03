@@ -31,22 +31,50 @@ describe("computeSignal's RSI vote", () => {
     expect(lastRsi).toBeGreaterThan(RISK_LIMITS.rsiOversold);
     expect(lastRsi).toBeLessThan(RISK_LIMITS.rsiOverbought);
 
-    const decision = computeSignal(barsFromCloses(closes), null, DEFAULT_SIGNAL_WEIGHTS);
+    const decision = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS);
     const rsiSignal = decision.contributingSignals.find((s) => s.key === "momentum_rsi");
     expect(rsiSignal?.vote).toBe(0);
   });
 
   it("votes bearish once RSI crosses the overbought threshold", () => {
     const closes = Array.from({ length: 30 }, (_, i) => 100 + i * 2); // relentless uptrend -> RSI pinned near 100
-    const decision = computeSignal(barsFromCloses(closes), null, DEFAULT_SIGNAL_WEIGHTS);
+    const decision = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS);
     const rsiSignal = decision.contributingSignals.find((s) => s.key === "momentum_rsi");
     expect(rsiSignal?.vote).toBeLessThan(0);
   });
 
   it("votes bullish once RSI crosses the oversold threshold", () => {
     const closes = Array.from({ length: 30 }, (_, i) => 200 - i * 2); // relentless downtrend -> RSI pinned near 0
-    const decision = computeSignal(barsFromCloses(closes), null, DEFAULT_SIGNAL_WEIGHTS);
+    const decision = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS);
     const rsiSignal = decision.contributingSignals.find((s) => s.key === "momentum_rsi");
     expect(rsiSignal?.vote).toBeGreaterThan(0);
+  });
+});
+
+describe("computeSignal's social_chatter vote", () => {
+  const closes = Array.from({ length: 30 }, (_, i) => 100 + Math.sin(i / 3));
+
+  it("is absent when no chatter score is available", () => {
+    const decision = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS);
+    expect(decision.contributingSignals.find((s) => s.key === "social_chatter")).toBeUndefined();
+  });
+
+  it("votes with the given chatter score, clamped to [-1, 1]", () => {
+    const decision = computeSignal(barsFromCloses(closes), null, 0.6, DEFAULT_SIGNAL_WEIGHTS);
+    const chatterSignal = decision.contributingSignals.find((s) => s.key === "social_chatter");
+    expect(chatterSignal?.vote).toBeCloseTo(0.6, 10);
+  });
+
+  it("clamps an out-of-range chatter score", () => {
+    const decision = computeSignal(barsFromCloses(closes), null, 5, DEFAULT_SIGNAL_WEIGHTS);
+    const chatterSignal = decision.contributingSignals.find((s) => s.key === "social_chatter");
+    expect(chatterSignal?.vote).toBe(1);
+  });
+
+  it("uses its own default weight (0.5, lower than the other signals) unless learning/ has adjusted it", () => {
+    const decision = computeSignal(barsFromCloses(closes), null, 0.6, DEFAULT_SIGNAL_WEIGHTS);
+    const chatterSignal = decision.contributingSignals.find((s) => s.key === "social_chatter");
+    expect(chatterSignal?.weight).toBe(DEFAULT_SIGNAL_WEIGHTS.social_chatter);
+    expect(chatterSignal?.weight).toBeLessThan(DEFAULT_SIGNAL_WEIGHTS.trend);
   });
 });
