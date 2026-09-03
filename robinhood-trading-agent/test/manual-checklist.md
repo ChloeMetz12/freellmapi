@@ -27,15 +27,20 @@ the live wiring or your actual risk tolerance for this specific account.
       actual names (`get_accounts`, `get_equity_quotes`/`historicals`,
       `place_equity_order`/`place_crypto_order`, etc. — quite different
       from this package's original placeholder assumptions).
-- [ ] **Resolve the order-confirmation question before going further.**
-      Every `place_*_order` tool is paired with a `review_*`/`preview_*`
-      call and "requires explicit user confirmation before firing" per the
-      connector session that inspected it. Determine whether that's a
-      human-facing UI prompt (which caps how autonomous execution can
-      actually be) or a parameter the calling agent supplies itself. This
-      may mean the "fully autonomous, no per-trade approval" goal isn't
-      achievable as originally specified through this connector — surface
-      that to the user rather than assuming either way.
+- [x] **Order-confirmation question — mostly resolved.**
+      `place_equity_order`'s actual schema (`account_number`, `symbol`,
+      `side`, `type`, `quantity`/`dollar_amount`, `limit_price`,
+      `stop_price`, `market_hours`, `time_in_force`, `tax_lots`) has no
+      `confirm`/`dry_run`/`preview_id` field — a calling agent cannot
+      supply "yes, place this" itself. Combined with the connector
+      reportedly requiring "explicit user confirmation before firing,"
+      this is strong evidence the confirmation is a human-facing UI step
+      this package cannot bypass. **Decision needed from the user**: is
+      "continuous autonomous proposal/sizing + human tap-to-approve per
+      trade" an acceptable redefinition of this project's "autonomous"
+      goal, or does this connector need to be reconsidered entirely?
+      Don't wire `size_order` to a live `place_*_order` call until that's
+      settled.
 - [ ] Confirm `account_number` (equities/options) vs `rhs_account_number`
       (crypto) are correctly threaded through wherever this package's
       tools are called with account context.
