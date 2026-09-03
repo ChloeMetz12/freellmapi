@@ -154,7 +154,9 @@ a cold-starting serverless function would lose them between firings).
 The `Dockerfile`/`docker-compose.yml` in this package are one way to do
 that — see "Docker" under Setup below. Whatever the container's host is,
 it needs a **stable, internet-reachable URL** for the persistent Claude
-session to call — a host with its own public IP/hostname works directly;
+session to call — a host with its own public IP/hostname can work
+directly (the compose file's port publishing defaults to localhost-only;
+see "Docker" below for the one setting that opts it into being reachable);
 a machine behind NAT/a home network needs something in front of it (a
 Cloudflare Tunnel, Tailscale Funnel, etc.) rather than port-forwarding.
 
@@ -179,9 +181,20 @@ curl -i http://localhost:8787/mcp   # expect 401 with no Authorization header
 `docker-compose.yml` mounts named volumes at `/app/state` and `/app/runs`
 so safety/halt state, the PDT trade log, and learned weights survive a
 container restart or rebuild — **never** run the image without these
-mounted (or an equivalent bind mount), since `SafetyStateStore` fails
-closed on missing state but a genuinely *lost* volume silently resets the
-kill-switch and PDT history, which is worse.
+mounted (or an equivalent bind mount). `SafetyStateStore` only fails
+closed (halts, requires a manual resume) on corrupt/unreadable state; a
+genuinely *missing* state file is treated like a fresh install and falls
+back to defaults, not a halt — so a *lost* volume is a silent reset of the
+kill-switch and PDT history, which is worse than a loud failure.
+
+By default the compose file publishes port 8787 bound to `127.0.0.1` only
+— reachable from this machine for the `curl` check above, but not the LAN
+or internet. If this host already has its own public IP/hostname and you
+want to skip the tunnel below, set `MCP_PUBLISH_BIND=0.0.0.0` (or a
+specific interface IP) in `.env` and re-run `docker compose up -d --build`
+— still gated by `MCP_AUTH_TOKEN` either way. A host behind NAT should
+leave this alone and use the tunnel instead (below), which reaches the
+`mcp` service over the internal compose network, not this published port.
 
 If `LLM_GATEWAY_URL` in `.env` points at `localhost` (the default, for
 this monorepo's own gateway), that won't resolve to the host machine from

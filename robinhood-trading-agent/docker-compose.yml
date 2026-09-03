@@ -2,12 +2,17 @@ services:
   mcp:
     build: .
     ports:
-      # Bound to localhost only — reachable from this machine (for the
-      # curl auth check in the manual checklist) but not the LAN. The
-      # cloudflared service below reaches this container over the
-      # internal compose network (http://mcp:8787), not this published
-      # port, so nothing here needs to be internet-facing.
-      - "127.0.0.1:8787:8787"
+      # Defaults to localhost-only — reachable from this machine (for the
+      # curl auth check in the manual checklist) but not the LAN or
+      # internet. The cloudflared service below reaches this container
+      # over the internal compose network (http://mcp:8787), not this
+      # published port, so a NAT'd host never needs to change this.
+      # A host with its own public IP/hostname that wants to skip the
+      # tunnel and expose this port directly should set
+      # MCP_PUBLISH_BIND=0.0.0.0 (or a specific interface IP) in .env —
+      # see README.md's "Docker" section. Still gated by MCP_AUTH_TOKEN
+      # either way.
+      - "${MCP_PUBLISH_BIND:-127.0.0.1}:8787:8787"
     env_file:
       - .env
     environment:
@@ -19,10 +24,12 @@ services:
       AUDIT_LOG_DIR: /app/runs
     volumes:
       # Safety/halt state, PDT trade log, and learned weights must survive
-      # a container restart or rebuild — SafetyStateStore fails closed on
-      # missing/corrupt state, but a *lost* volume silently resets the
-      # kill-switch and PDT trade history, which is worse. Never run this
-      # without these mounted.
+      # a container restart or rebuild. SafetyStateStore fails closed
+      # (halts and requires a manual resume) only on corrupt/unreadable
+      # state; a genuinely *missing* state file is NOT a halt — it's
+      # treated like a fresh install and falls back to defaults. That
+      # means a *lost* volume is a silent reset of the kill-switch and PDT
+      # history, not a safe failure — never run this without these mounted.
       - rht-state:/app/state
       - rht-runs:/app/runs
     restart: unless-stopped
