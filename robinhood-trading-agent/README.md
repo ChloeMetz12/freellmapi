@@ -188,6 +188,34 @@ this monorepo's own gateway), that won't resolve to the host machine from
 inside the container — point it at `host.docker.internal` (Docker
 Desktop) or the gateway's real reachable address instead.
 
+#### Exposing it if this host is behind NAT (home/office network)
+
+The persistent Claude session calling this server runs outside your
+network, so if this machine doesn't have its own public IP/hostname, don't
+port-forward — use a **Cloudflare Tunnel** instead (no inbound port
+opened on your router at all):
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com/) →
+   **Networking → Tunnels → Create a tunnel**. Choose **Cloudflared**,
+   give it a name (e.g. `robinhood-trading-agent`), and on the connector
+   install step pick **Docker** — copy just the token value
+   (`eyJhIjoi...`), not the whole install command.
+2. Put that token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`.
+3. Still on the tunnel's setup page, add a **Public Hostname**: pick a
+   subdomain of a zone already on your Cloudflare account (e.g.
+   `rht-mcp.yourdomain.com`), service type **HTTP**, URL `mcp:8787` — that
+   hostname, not `localhost`, since `cloudflared` reaches the `mcp`
+   service over the compose network by its service name.
+4. Start both services with the tunnel enabled:
+   `docker compose --profile tunnel up -d --build` (plain `docker compose
+   up` never starts `cloudflared` and never requires
+   `CLOUDFLARE_TUNNEL_TOKEN`, for a host that already has its own
+   reachable address).
+5. Confirm from any machine: `curl -i https://rht-mcp.yourdomain.com/mcp`
+   should return 401 with no `Authorization` header, the same as the local
+   check above — that's the URL the persistent Claude Code Remote session
+   should be pointed at.
+
 Then point a persistent Claude Code Remote session at this server's URL as
 an MCP connection, alongside the authorized `RobinHood_Trade` connector, and
 set up the cron Routine described above.
