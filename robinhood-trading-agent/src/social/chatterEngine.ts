@@ -46,10 +46,24 @@ const chatterSchema = z.object({
   rationale: z.string(),
 });
 
+// Message text length and count are controlled by upstream providers, not
+// by this package — bounding both here keeps a future provider change (or a
+// single unusually long post) from blowing past the LLM's context limit or
+// adding unbounded latency/cost, which would just make get_symbol_chatter
+// degrade more often.
+const MAX_MESSAGES_IN_PROMPT = 40;
+const MAX_MESSAGE_CHARS = 300;
+
+function truncateMessageText(text: string): string {
+  return text.length > MAX_MESSAGE_CHARS ? `${text.slice(0, MAX_MESSAGE_CHARS)}…` : text;
+}
+
 function buildUserPrompt(symbol: string, messages: ChatterMessage[]): string {
   if (messages.length === 0) return `No StockTwits or X chatter found for ${symbol} in this cycle.`;
-  const lines = messages.map((m) => `- [${m.source}${m.authorSentimentTag ? `, self-tagged ${m.authorSentimentTag}` : ""}] ${m.text}`).join("\n");
-  return `Ticker: ${symbol}\n\nRecent chatter (${messages.length} messages):\n${lines}`;
+  const included = messages.slice(0, MAX_MESSAGES_IN_PROMPT);
+  const lines = included.map((m) => `- [${m.source}${m.authorSentimentTag ? `, self-tagged ${m.authorSentimentTag}` : ""}] ${truncateMessageText(m.text)}`).join("\n");
+  const omittedNote = messages.length > included.length ? ` (${messages.length - included.length} more not shown)` : "";
+  return `Ticker: ${symbol}\n\nRecent chatter (${messages.length} messages${omittedNote}):\n${lines}`;
 }
 
 async function safelyFetch(name: string, symbol: string, fn: () => Promise<ChatterMessage[]>): Promise<ChatterMessage[]> {
@@ -81,6 +95,7 @@ export async function computeSymbolChatter(symbol: string, { env }: ChatterEngin
     const parsed = chatterSchema.parse(raw);
     return { symbol, ...parsed, messageCount: messages.length, degraded: false };
   } catch (err) {
-    return NEUTRAL_CHATTER(symbol, `LLM chatter call failed or returned invalid output: ${(err as Error).message}`);
+    const reason = err instanceof Error ? err.message : String(err);
+    return NEUTRAL_CHATTER(symbol, `LLM chatter call failed or returned invalid output: ${reason}`);
   }
 }
