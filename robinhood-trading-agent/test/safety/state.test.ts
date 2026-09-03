@@ -56,6 +56,17 @@ describe("SafetyStateStore", () => {
     expect(store.get().manuallyHalted).toBe(true);
   });
 
+  it("fails CLOSED when dayStartEquity is negative, instead of silently disabling the daily-loss guard", () => {
+    // checkDailyLoss short-circuits to "not triggered" whenever
+    // baseline <= 0 — a corrupted-but-parseable negative value would
+    // otherwise disable the daily-loss halt entirely without erroring.
+    dir = mkdtempSync(join(tmpdir(), "safety-state-"));
+    writeFileSync(join(dir, "safety-state.json"), JSON.stringify({ manuallyHalted: false, autoHaltReason: null, dayStartEquity: -1, dayStartDateIso: "2026-09-02", pdtTrades: [] }));
+
+    const store = new SafetyStateStore(dir);
+    expect(store.get().manuallyHalted).toBe(true);
+  });
+
   it("fails CLOSED when a PDT trade record's dateIso is not YYYY-MM-DD, instead of silently undercounting day trades", () => {
     // pdt.ts's window is a Set of "YYYY-MM-DD" strings — a differently
     // formatted dateIso would just never match it (window.has(...) always

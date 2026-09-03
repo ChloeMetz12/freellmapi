@@ -1,4 +1,5 @@
-import { writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { renameSync, unlinkSync, openSync, closeSync, writeFileSync, fsyncSync } from "node:fs";
+import { dirname } from "node:path";
 
 /**
  * Writes `content` to `filePath` via write-to-temp-then-rename, which
@@ -9,10 +10,26 @@ import { writeFileSync, renameSync, unlinkSync } from "node:fs";
  * corrupting it — for `SafetyStateStore` specifically that would trigger
  * an avoidable fail-closed halt on next boot for a reason unrelated to
  * any real risk event.
+ *
+ * Also fsyncs the temp file before rename and the containing directory
+ * after — atomicity alone doesn't guarantee durability: without an
+ * fsync, the OS can still lose the write entirely (not just partially)
+ * if the process/host crashes shortly after, since a normal write can
+ * sit in a page-cache buffer rather than reach disk. For safety/
+ * kill-switch state, losing the most recent write on crash is worse than
+ * the (small, synchronous) cost of fsyncing it.
  */
 export function atomicWriteFileSync(filePath: string, content: string): void {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmpPath, content);
+
+  const fd = openSync(tmpPath, "w");
+  try {
+    writeFileSync(fd, content);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+
   try {
     renameSync(tmpPath, filePath);
   } catch (err) {
@@ -26,5 +43,20 @@ export function atomicWriteFileSync(filePath: string, content: string): void {
       // ignore
     }
     throw err;
+  }
+
+  // Best-effort: fsync the containing directory so the rename itself is
+  // durable, not just the file's content. Directory fsync isn't
+  // supported on every platform (notably Windows) — failure here doesn't
+  // undo the write, which already succeeded and is the primary guarantee.
+  try {
+    const dirFd = openSync(dirname(filePath), "r");
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // ignore — best-effort only
   }
 }

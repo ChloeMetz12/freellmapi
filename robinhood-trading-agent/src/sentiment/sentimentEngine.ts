@@ -5,6 +5,11 @@ import { FinnhubMarketNews } from "./providers/finnhubMarketNews.js";
 import { NewsApiWorldNews } from "./providers/newsApiWorldNews.js";
 import { NEUTRAL_SENTIMENT, type MarketTrendSnapshot, type NewsHeadline, type SentimentResult } from "./types.js";
 
+/** Strips API-key query params from a string before it's logged anywhere — a fetch-level error's message/stack can embed the full request URL, ?token=/?apiKey= value included. Exported for direct unit testing. */
+export function redactSecrets(text: string): string {
+  return text.replace(/([?&](?:token|apiKey)=)[^&\s"']+/gi, "$1[REDACTED]");
+}
+
 const SYSTEM_PROMPT = `You analyze market-relevant news and macro/political context for sentiment
 that could affect near-term equity and crypto prices. You never recommend a
 specific trade, ticker action, or position size — that is out of scope and
@@ -62,7 +67,8 @@ export async function safelyFetch(name: string, fn: () => Promise<NewsHeadline[]
     // network error (Node/undici) can include the full request URL in its
     // message — that must never flow into a headline title the LLM reads
     // and the audit log records. Log the real error server-side only.
-    console.error(`[sentiment] ${name} fetch failed:`, err);
+    const detail = err instanceof Error ? redactSecrets(`${err.message}${err.stack ? `\n${err.stack}` : ""}`) : redactSecrets(String(err));
+    console.error(`[sentiment] ${name} fetch failed:`, detail);
     // A single provider failing degrades that provider's input, not the
     // whole sentiment read — the LLM still sees whatever the other
     // provider returned, and gets told this one was unavailable.

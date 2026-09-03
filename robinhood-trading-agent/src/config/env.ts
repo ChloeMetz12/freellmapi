@@ -12,7 +12,14 @@ const envSchema = z.object({
 
   DAILY_LOSS_HALT_PCT: z.coerce.number().min(0).max(1).default(0.1),
   MARGIN_UTILIZATION_CAP: z.coerce.number().min(0).max(1).default(0.8),
-  MARGIN_ENABLED: z.coerce.boolean().default(true),
+  // NOT z.coerce.boolean(): that does Boolean(str), which is true for any
+  // non-empty string — MARGIN_ENABLED=false would still coerce to true,
+  // silently enabling margin no matter what the operator wrote. Enumerate
+  // the actual string values instead.
+  MARGIN_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
   PDT_EQUITY_THRESHOLD_USD: z.coerce.number().positive().default(25_000),
 
   FINNHUB_API_KEY: z.string().optional(),

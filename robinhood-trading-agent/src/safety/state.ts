@@ -41,7 +41,12 @@ const pdtTradeRecordSchema = z.object({ symbol: z.string(), dateIso: isoDateSche
 const safetyStateSchema = z.object({
   manuallyHalted: z.boolean(),
   autoHaltReason: z.string().nullable(),
-  dayStartEquity: z.number().nullable(),
+  // Must be finite and positive: checkDailyLoss short-circuits to
+  // "not triggered" whenever baseline <= 0, and a non-finite baseline
+  // (Infinity) would make the loss-fraction math never meaningfully
+  // trigger either — a corrupted-but-parseable -1 or Infinity would
+  // otherwise silently disable the daily-loss guard entirely.
+  dayStartEquity: z.number().positive().finite().nullable(),
   dayStartDateIso: isoDateSchema.nullable(),
   pdtTrades: z.array(pdtTradeRecordSchema),
 });
