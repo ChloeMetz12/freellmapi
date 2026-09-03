@@ -15,7 +15,7 @@ export const ohlcvBarSchema = z.object({
 export const assetClassSchema = z.enum(["equity", "crypto"]);
 
 export const marketTrendSchema = z.object({
-  broadMarketChangePct: z.number(),
-  techChangePct: z.number(),
-  volatilityIndex: z.number(),
+  broadMarketChangePct: z.number().finite(),
+  techChangePct: z.number().finite(),
+  volatilityIndex: z.number().finite(),
 });

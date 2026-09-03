@@ -1,5 +1,6 @@
 import { renameSync, unlinkSync, openSync, closeSync, writeFileSync, fsyncSync } from "node:fs";
 import { dirname } from "node:path";
+import { randomBytes } from "node:crypto";
 
 /**
  * Writes `content` to `filePath` via write-to-temp-then-rename, which
@@ -20,9 +21,16 @@ import { dirname } from "node:path";
  * the (small, synchronous) cost of fsyncing it.
  */
 export function atomicWriteFileSync(filePath: string, content: string): void {
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  // pid + Date.now() alone can collide: two writes to the same filePath in
+  // the same process within the same millisecond (e.g. two concurrent
+  // save() calls) would otherwise race on the same temp file. hrtime's
+  // nanosecond resolution plus a random suffix make that practically
+  // impossible, and opening with "wx" (fails if the path already exists)
+  // turns any remaining collision into a loud error instead of silent
+  // corruption.
+  const tmpPath = `${filePath}.${process.pid}.${process.hrtime.bigint()}.${randomBytes(4).toString("hex")}.tmp`;
 
-  const fd = openSync(tmpPath, "w");
+  const fd = openSync(tmpPath, "wx");
   try {
     writeFileSync(fd, content);
     fsyncSync(fd);

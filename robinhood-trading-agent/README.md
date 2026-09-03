@@ -22,7 +22,7 @@ was written:
 
 | Parameter | Configuration |
 |---|---|
-| Execution | Fully autonomous — no per-trade human approval, intraday day trading. **Confirmed not achievable as specified** — see "The real `RobinHood_Trade` tool surface" below; `place_equity_order` requires a human approval click this package cannot supply itself, confirmed by a live test. |
+| Execution | **Decided: approve-per-trade ceiling.** Originally specified as fully autonomous with no per-trade human approval; confirmed by a live test that Robinhood's connector requires a human approval click on every order with no bypass (see "The real `RobinHood_Trade` tool surface" below). The user's explicit decision is to accept that click as the ceiling of "autonomous" here: everything upstream of it — market analysis, candlestick/indicator signals, sentiment/chatter, position sizing, online learning — runs continuously with zero human input, and a human's only action is tapping approve/reject on the order the persistent session presents. Day trading, intraday. |
 | Learning | Fully autonomous online learning — signal weights adapt in production, no human gate before a change takes effect |
 | Position sizing | No hard per-trade cap — confidence- and volatility-scaled, can use full available buying power |
 | Daily loss kill-switch | Hard halt at **10% of account equity lost in a day** (`DAILY_LOSS_HALT_PCT`) |
@@ -59,8 +59,12 @@ So the architecture splits in two:
    cron Routine (`create_trigger`) wakes it every 1-5 minutes during market
    hours; each firing it: calls `RobinHood_Trade`'s data tools for fresh
    quotes/history/account state → calls this server's `compute_decision` →
-   calls `check_safety` → if clear, calls `size_order` then `RobinHood_Trade`'s
-   order-placement tools → calls `record_outcome` once the trade closes.
+   calls `check_safety` → if clear, calls `size_order` then presents the
+   proposed order to the user for the human approval tap Robinhood's
+   connector requires (see "The real `RobinHood_Trade` tool surface" below —
+   this step cannot be skipped or automated) → on approval, calls
+   `RobinHood_Trade`'s order-placement tools → calls `record_outcome` once
+   the trade closes.
 
 ### The real `RobinHood_Trade` tool surface (confirmed, 67 tools)
 
@@ -119,17 +123,24 @@ approval step outside the tool call (not a `salesforce-gantt-agent`-style
 be bypassed by anything this package computes.
 
 **This means the "fully autonomous, no per-trade human approval"
-configuration this package was explicitly built for (see the table at the
+configuration this package was originally built for (see the table at the
 top of this README) is not achievable through this connector as it
 currently exists.** Every real order this agent ever wants to place will
 need a human to approve it individually, regardless of what `size_order`
-computes or how confident the strategy is. Before wiring `size_order`'s
-output to an actual `place_*_order` call, the project needs an explicit
-decision: accept human-in-the-loop approval as the real shape of
-"autonomous" here (this agent proposes, sizes, and learns continuously and
-autonomously; a human just taps approve per trade instead of the agent
-firing it directly), or treat this connector as unsuitable for the original
-fully-autonomous goal and reconsider the approach.
+computes or how confident the strategy is.
+
+**Decision (resolved):** accept human-in-the-loop approval as the real
+shape of "autonomous" for this project. This agent proposes, sizes, and
+learns continuously and fully autonomously; a human taps approve/reject per
+trade instead of the agent firing it directly. The alternative — dropping
+this connector for a broker with true zero-touch order placement via
+API keys (e.g. Alpaca, Interactive Brokers) — was considered and explicitly
+declined for now; it would mean rewriting `execution/` and `mcp/` against a
+new broker's API and is treated as a separate, later effort if the
+approval step ever proves too limiting in practice. Every design and
+orchestration decision downstream of this point (the persistent session's
+per-cycle flow, the audit log, the manual checklist) assumes a human is
+present to approve or reject each order the agent proposes.
 
 ### Deployment
 
@@ -344,10 +355,10 @@ and `src/learning/reflection.ts` for the actual system prompts.
   enforces**, confirmed by a live test (see "The real `RobinHood_Trade`
   tool surface" above) — not something this package (or any calling agent)
   can supply itself. No code in this package can make execution fully
-  autonomous. The project needs an explicit decision on
-  what "autonomous" means going forward — continuous autonomous
-  proposal/sizing with a human tap-to-approve step per trade, or something
-  else — before `size_order`'s output is wired to a live order call.
+  autonomous. **Resolved**: the project accepts continuous autonomous
+  proposal/sizing/learning with a human tap-to-approve step per trade as
+  the real shape of "autonomous" here (see "Architecture" above); a broker
+  switch for true zero-touch execution was considered and declined for now.
 - Robinhood's terms of service for automated/agentic trading via this
   connector are still unverified even though its tool surface now is.
 - Crypto trades 24/7, equities don't — the cron Routines for each need

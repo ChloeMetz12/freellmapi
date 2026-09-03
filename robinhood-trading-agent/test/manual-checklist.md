@@ -37,13 +37,11 @@ the live wiring or your actual risk tolerance for this specific account.
       each `place_equity_order` call required an explicit human approval
       click before submission (they failed at Robinhood's buying-power
       check only after being approved and sent). The confirmation is a
-      real human-facing UI step this package cannot bypass. **Decision
-      needed from the user**: is
-      "continuous autonomous proposal/sizing + human tap-to-approve per
-      trade" an acceptable redefinition of this project's "autonomous"
-      goal, or does this connector need to be reconsidered entirely?
-      Don't wire `size_order` to a live `place_*_order` call until that's
-      settled.
+      real human-facing UI step this package cannot bypass. **Decided**:
+      "continuous autonomous proposal/sizing/learning + human tap-to-approve
+      per trade" is this project's accepted definition of "autonomous" going
+      forward (see README.md's "Architecture" section). A broker switch for
+      true zero-touch execution was considered and declined for now.
 - [ ] Confirm `account_number` (equities/options) vs `rhs_account_number`
       (crypto) are correctly threaded through wherever this package's
       tools are called with account context.
