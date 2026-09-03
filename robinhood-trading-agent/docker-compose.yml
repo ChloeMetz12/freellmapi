@@ -1,0 +1,27 @@
+services:
+  mcp:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    environment:
+      # dotenv/config (loaded by src/config/env.ts) only reads a .env file
+      # from the working directory — it never overrides variables already
+      # set in the environment, so anything set here (or via env_file
+      # above) is what actually takes effect inside the container.
+      STATE_DIR: /app/state
+      AUDIT_LOG_DIR: /app/runs
+    volumes:
+      # Safety/halt state, PDT trade log, and learned weights must survive
+      # a container restart or rebuild — SafetyStateStore fails closed on
+      # missing/corrupt state, but a *lost* volume silently resets the
+      # kill-switch and PDT trade history, which is worse. Never run this
+      # without these mounted.
+      - rht-state:/app/state
+      - rht-runs:/app/runs
+    restart: unless-stopped
+
+volumes:
+  rht-state:
+  rht-runs:

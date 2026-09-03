@@ -151,6 +151,13 @@ every firing, so it's served over HTTP (`src/mcp/server.ts`, Express +
 with persistent disk (safety/halt state and learned weights live on disk;
 a cold-starting serverless function would lose them between firings).
 
+The `Dockerfile`/`docker-compose.yml` in this package are one way to do
+that — see "Docker" under Setup below. Whatever the container's host is,
+it needs a **stable, internet-reachable URL** for the persistent Claude
+session to call — a host with its own public IP/hostname works directly;
+a machine behind NAT/a home network needs something in front of it (a
+Cloudflare Tunnel, Tailscale Funnel, etc.) rather than port-forwarding.
+
 ## Setup
 
 ```bash
@@ -159,6 +166,27 @@ npm install
 cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum (openssl rand -hex 32)
 npm run mcp            # starts the decision-engine server (default MODE=dry-run)
 ```
+
+### Docker
+
+```bash
+cd robinhood-trading-agent
+cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum
+docker compose up -d --build
+curl -i http://localhost:8787/mcp   # expect 401 with no Authorization header
+```
+
+`docker-compose.yml` mounts named volumes at `/app/state` and `/app/runs`
+so safety/halt state, the PDT trade log, and learned weights survive a
+container restart or rebuild — **never** run the image without these
+mounted (or an equivalent bind mount), since `SafetyStateStore` fails
+closed on missing state but a genuinely *lost* volume silently resets the
+kill-switch and PDT history, which is worse.
+
+If `LLM_GATEWAY_URL` in `.env` points at `localhost` (the default, for
+this monorepo's own gateway), that won't resolve to the host machine from
+inside the container — point it at `host.docker.internal` (Docker
+Desktop) or the gateway's real reachable address instead.
 
 Then point a persistent Claude Code Remote session at this server's URL as
 an MCP connection, alongside the authorized `RobinHood_Trade` connector, and
