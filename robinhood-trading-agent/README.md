@@ -22,7 +22,7 @@ was written:
 
 | Parameter | Configuration |
 |---|---|
-| Execution | Fully autonomous — no per-trade human approval, intraday day trading. **Likely not achievable as specified** — see "The real `RobinHood_Trade` tool surface" below, `place_equity_order` appears to require a human approval step this package cannot supply itself. |
+| Execution | Fully autonomous — no per-trade human approval, intraday day trading. **Confirmed not achievable as specified** — see "The real `RobinHood_Trade` tool surface" below; `place_equity_order` requires a human approval click this package cannot supply itself, confirmed by a live test. |
 | Learning | Fully autonomous online learning — signal weights adapt in production, no human gate before a change takes effect |
 | Position sizing | No hard per-trade cap — confidence- and volatility-scaled, can use full available buying power |
 | Daily loss kill-switch | Hard halt at **10% of account equity lost in a day** (`DAILY_LOSS_HALT_PCT`) |
@@ -98,36 +98,38 @@ the real tools:
   provider in `src/sentiment/` for the financial-news half of sentiment
   (NewsAPI would still be needed for the world/politics half).
 
-**Resolved (mostly) — autonomy is capped by this connector.** Every
-order-placing tool (`place_equity_order`, `place_option_order`,
-`place_crypto_order`) is paired with a `review_*`/`preview_*` tool meant to
-be called first, and is reported to *"require explicit user confirmation
-before firing."* `place_equity_order`'s actual input schema was inspected —
-it has `account_number`, `symbol`, `side`, `type`, `quantity`/`dollar_amount`,
-`limit_price`, `stop_price`, `market_hours`, `time_in_force`, `tax_lots` —
-**and nothing resembling a `confirm`, `dry_run`, or `preview_id` field**. A
-calling agent has no parameter through which to supply "yes, actually place
-this" itself.
+**Confirmed — autonomy is capped by this connector, empirically, not just
+inferred.** Every order-placing tool (`place_equity_order`,
+`place_option_order`, `place_crypto_order`) is paired with a
+`review_*`/`preview_*` tool meant to be called first. `place_equity_order`'s
+input schema (`account_number`, `symbol`, `side`, `type`,
+`quantity`/`dollar_amount`, `limit_price`, `stop_price`, `market_hours`,
+`time_in_force`, `tax_lots`) has **nothing resembling a `confirm`,
+`dry_run`, or `preview_id` field** — no parameter exists through which a
+calling agent could supply "yes, actually place this" itself.
 
-That absence is strong evidence the confirmation is enforced outside the
-tool call entirely — most likely a human-facing approval step in the UI,
-not a `salesforce-gantt-agent`-style `confirm_dispatch` an autonomous loop
-could call on its own. **This means the "fully autonomous, no per-trade
-human approval" configuration this package was explicitly built for (see
-the table at the top of this README) is very likely not achievable through
-this connector as it currently exists.** Every real order this agent ever
-wants to place will likely still need a human to approve something,
-regardless of what `size_order` computes or how confident the strategy is.
+That inference was then directly confirmed by a live test: a session with
+this connector attached was explicitly told to place five real 1-share
+market buy orders (on IBIT/FBTC/BITB/ETHA/FETH). **Each `place_equity_order`
+call required an explicit human approval click before it was submitted** —
+they all ultimately failed at Robinhood's own buying-power check, but only
+*after* being approved and sent. So the gate is real, it's a human-facing
+approval step outside the tool call (not a `salesforce-gantt-agent`-style
+`confirm_dispatch` an autonomous loop could call on its own), and it cannot
+be bypassed by anything this package computes.
 
-This isn't 100% certain — it's inferred from a missing parameter, not a
-direct statement of the approval mechanism — but it's not something to
-build past assuming otherwise. Before wiring `size_order`'s output to an
-actual `place_*_order` call, decide how the project actually wants to
-handle this: accept a human-in-the-loop approval step as the real shape of
-"autonomous" here (this agent proposes and sizes trades continuously and
-autonomously; a human still has to tap approve on each one), or treat this
-connector as unsuitable for the original fully-autonomous goal and
-reconsider the approach.
+**This means the "fully autonomous, no per-trade human approval"
+configuration this package was explicitly built for (see the table at the
+top of this README) is not achievable through this connector as it
+currently exists.** Every real order this agent ever wants to place will
+need a human to approve it individually, regardless of what `size_order`
+computes or how confident the strategy is. Before wiring `size_order`'s
+output to an actual `place_*_order` call, the project needs an explicit
+decision: accept human-in-the-loop approval as the real shape of
+"autonomous" here (this agent proposes, sizes, and learns continuously and
+autonomously; a human just taps approve per trade instead of the agent
+firing it directly), or treat this connector as unsuitable for the original
+fully-autonomous goal and reconsider the approach.
 
 ### Deployment
 
@@ -257,12 +259,11 @@ and `src/learning/reflection.ts` for the actual system prompts.
 - Routing sentiment through `freellmapi`'s own free-tier LLM aggregation
   adds a dependency on that gateway's uptime/quality for a real-money
   decision path — acceptable only because failures degrade to neutral.
-- **Order placement very likely requires human confirmation Robinhood
-  itself enforces**, not something this package (or any calling agent) can
-  supply itself — `place_equity_order`'s real schema has no `confirm`/
-  `dry_run`/`preview_id` field at all (see "The real `RobinHood_Trade` tool
-  surface" above). No code in this package can make execution fully
-  autonomous if that holds. The project needs an explicit decision on
+- **Order placement requires human confirmation Robinhood itself
+  enforces**, confirmed by a live test (see "The real `RobinHood_Trade`
+  tool surface" above) — not something this package (or any calling agent)
+  can supply itself. No code in this package can make execution fully
+  autonomous. The project needs an explicit decision on
   what "autonomous" means going forward — continuous autonomous
   proposal/sizing with a human tap-to-approve step per trade, or something
   else — before `size_order`'s output is wired to a live order call.

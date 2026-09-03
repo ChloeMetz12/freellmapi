@@ -27,15 +27,18 @@ the live wiring or your actual risk tolerance for this specific account.
       actual names (`get_accounts`, `get_equity_quotes`/`historicals`,
       `place_equity_order`/`place_crypto_order`, etc. — quite different
       from this package's original placeholder assumptions).
-- [x] **Order-confirmation question — mostly resolved.**
+- [x] **Order-confirmation question — resolved, confirmed by a live test.**
       `place_equity_order`'s actual schema (`account_number`, `symbol`,
       `side`, `type`, `quantity`/`dollar_amount`, `limit_price`,
       `stop_price`, `market_hours`, `time_in_force`, `tax_lots`) has no
       `confirm`/`dry_run`/`preview_id` field — a calling agent cannot
-      supply "yes, place this" itself. Combined with the connector
-      reportedly requiring "explicit user confirmation before firing,"
-      this is strong evidence the confirmation is a human-facing UI step
-      this package cannot bypass. **Decision needed from the user**: is
+      supply "yes, place this" itself. This was then directly confirmed:
+      a session was told to submit five real 1-share market orders, and
+      each `place_equity_order` call required an explicit human approval
+      click before submission (they failed at Robinhood's buying-power
+      check only after being approved and sent). The confirmation is a
+      real human-facing UI step this package cannot bypass. **Decision
+      needed from the user**: is
       "continuous autonomous proposal/sizing + human tap-to-approve per
       trade" an acceptable redefinition of this project's "autonomous"
       goal, or does this connector need to be reconsidered entirely?
