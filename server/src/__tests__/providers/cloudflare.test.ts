@@ -124,6 +124,57 @@ describe('CloudflareProvider', () => {
     });
   });
 
+  describe('discoverAccounts', () => {
+    it('returns the accounts a bare token can see', async () => {
+      let capturedUrl = '';
+      let capturedHeaders: Record<string, string> = {};
+      vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+        capturedUrl = url as string;
+        capturedHeaders = (init as any).headers;
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            success: true,
+            result: [
+              { id: 'acc-1', name: 'My Account' },
+              { id: 'acc-2', name: 'Other Account' },
+            ],
+          }),
+        } as any;
+      });
+
+      const accounts = await provider.discoverAccounts('my-token');
+      expect(capturedUrl).toBe('https://api.cloudflare.com/client/v4/accounts?per_page=50');
+      expect(capturedHeaders['Authorization']).toBe('Bearer my-token');
+      expect(accounts).toEqual([
+        { id: 'acc-1', name: 'My Account' },
+        { id: 'acc-2', name: 'Other Account' },
+      ]);
+    });
+
+    it('returns an empty list when the response has no result array', async () => {
+      vi.spyOn(global, 'fetch').mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, result: null }),
+      } as any));
+
+      expect(await provider.discoverAccounts('my-token')).toEqual([]);
+    });
+
+    it('throws with the upstream reason on a 403 (Workers-AI-only token scope)', async () => {
+      vi.spyOn(global, 'fetch').mockImplementation(async () => ({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        json: () => Promise.resolve({ success: false, errors: [{ code: 9109, message: 'Unauthorized to access requested resource' }] }),
+      } as any));
+
+      await expect(provider.discoverAccounts('my-token')).rejects.toThrow(/Unauthorized to access requested resource/);
+    });
+  });
+
   it('should convert null assistant content to empty string (CF rejects null)', async () => {
     let capturedBody: any = null;
     vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
