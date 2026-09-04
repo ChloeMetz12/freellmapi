@@ -23,6 +23,11 @@ services:
   # hostname's CNAME should already point at that tunnel's ID. The token
   # itself is a bearer credential for the tunnel connector, separate from
   # MCP_AUTH_TOKEN below (that one still gates the /mcp route itself).
+  #
+  # Behind the "tunnel" profile so `docker compose up -d --build` alone can
+  # start just mcp-server (e.g. for local testing behind your own reverse
+  # proxy) — bring the tunnel up too with:
+  #   docker compose --profile tunnel up -d --build
   cloudflared:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
@@ -31,6 +36,8 @@ services:
     depends_on:
       - mcp-server
     restart: unless-stopped
+    profiles:
+      - tunnel
 
 volumes:
   mcp-state:
