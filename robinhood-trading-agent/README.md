@@ -151,6 +151,19 @@ every firing, so it's served over HTTP (`src/mcp/server.ts`, Express +
 with persistent disk (safety/halt state and learned weights live on disk;
 a cold-starting serverless function would lose them between firings).
 
+`docker-compose.yml` in this directory gives that server a stable public URL
+without opening an inbound port on the host: a `cloudflared` sidecar holds a
+Cloudflare Tunnel to `mcp-server:8787`, so only Cloudflare's edge (through
+the tunnel) and MCP_AUTH_TOKEN's bearer check stand between the internet and
+the server — `mcp-server`'s own port is `expose`d to the compose network
+only, never published to the host. Create the tunnel and its public hostname
+in the Cloudflare Zero Trust dashboard first (see `.env.example`'s
+`CLOUDFLARE_TUNNEL_TOKEN` comment), then:
+
+```bash
+docker compose up -d --build
+```
+
 ## Setup
 
 ```bash
@@ -160,9 +173,18 @@ cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum (openssl rand -hex 32
 npm run mcp            # starts the decision-engine server (default MODE=dry-run)
 ```
 
-Then point a persistent Claude Code Remote session at this server's URL as
-an MCP connection, alongside the authorized `RobinHood_Trade` connector, and
-set up the cron Routine described above.
+Or, for the Docker + Cloudflare Tunnel deployment above:
+
+```bash
+cd robinhood-trading-agent
+cp .env.example .env   # fill in MCP_AUTH_TOKEN and CLOUDFLARE_TUNNEL_TOKEN
+docker compose up -d --build
+```
+
+Then point a persistent Claude Code Remote session at this server's URL
+(the tunnel's public hostname, or `http://localhost:8787` if running
+`npm run mcp` locally) as an MCP connection, alongside the authorized
+`RobinHood_Trade` connector, and set up the cron Routine described above.
 
 For local testing without any of that:
 
