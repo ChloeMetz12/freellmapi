@@ -1,0 +1,44 @@
+services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    # Not published to the host — cloudflared reaches it over the compose
+    # network, and nothing else needs to. The tunnel is the only way in.
+    expose:
+      - "8787"
+    volumes:
+      - mcp-state:/app/state
+      - mcp-runs:/app/runs
+    restart: unless-stopped
+
+  # Gives the persistent Claude session a stable, always-reachable HTTPS URL
+  # for this server without opening an inbound port on the host (see README
+  # "Deployment"). CLOUDFLARE_TUNNEL_TOKEN comes from the tunnel you created
+  # in the Cloudflare Zero Trust dashboard (Networks > Tunnels); its public
+  # hostname's CNAME should already point at that tunnel's ID. The token
+  # itself is a bearer credential for the tunnel connector, separate from
+  # MCP_AUTH_TOKEN below (that one still gates the /mcp route itself).
+  #
+  # Behind the "tunnel" profile so `docker compose up -d --build` alone can
+  # start just mcp-server (e.g. for local testing behind your own reverse
+  # proxy) — bring the tunnel up too with:
+  #   docker compose --profile tunnel up -d --build
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - .env
+    depends_on:
+      - mcp-server
+    restart: unless-stopped
+    profiles:
+      - tunnel
+
+volumes:
+  mcp-state:
+  mcp-runs:
