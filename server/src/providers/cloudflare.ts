@@ -23,6 +23,12 @@ import { providerTimeoutMs } from '../lib/provider-timeout.js';
 const CHAT_TIMEOUT_MS = providerTimeoutMs('cloudflare', 60_000);
 const GLM_47_FLASH_TIMEOUT_MS = 200_000;
 
+/** One account a Cloudflare API token can see, as returned by GET /accounts. */
+export interface CloudflareAccountSummary {
+  id: string;
+  name: string;
+}
+
 export class CloudflareProvider extends BaseProvider {
   readonly platform = 'cloudflare' as const;
   readonly name = 'Cloudflare Workers AI';
@@ -210,5 +216,40 @@ export class CloudflareProvider extends BaseProvider {
       ? `token status is "${data.result.status}"`
       : data.errors?.[0]?.message ?? 'verify endpoint did not confirm an active token';
     return { result: { valid: false, error: `${this.name} key validation failed: ${reason}` } };
+  }
+
+  /**
+   * List the accounts a bare API token (no "account_id:" prefix yet) can see,
+   * via GET /accounts — so the Add-key form can fill in the account id instead
+   * of making the user dig it out of the dashboard URL. A token scoped ONLY to
+   * "Workers AI: Edit" (the dashboard's own template) lacks Account Read and
+   * gets a 403 here; the caller falls back to manual entry in that case.
+   */
+  async discoverAccounts(token: string, quotaContext?: QuotaObservationContext): Promise<CloudflareAccountSummary[]> {
+    const res = await this.fetchWithTimeout(
+      'https://api.cloudflare.com/client/v4/accounts?per_page=50',
+      { method: 'GET', headers: { 'Authorization': `Bearer ${token}` } },
+      10000,
+      { timeoutBounds: 'request' },
+    );
+    recordQuotaObservationsFromResponse(res, {
+      platform: this.platform,
+      keyId: quotaContext?.keyId,
+      providerAccountId: quotaContext?.providerAccountId,
+      modelId: quotaContext?.modelId,
+      quotaPoolKey: quotaContext?.quotaPoolKey,
+      endpoint: 'accounts',
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw providerHttpError(res, `Cloudflare account lookup failed (HTTP ${res.status}): ${(body as any).errors?.[0]?.message ?? res.statusText}`, body);
+    }
+
+    const data = await res.json() as any;
+    if (data.success !== true || !Array.isArray(data.result)) return [];
+    return data.result
+      .filter((a: any) => typeof a?.id === 'string' && a.id && typeof a?.name === 'string')
+      .map((a: any) => ({ id: a.id, name: a.name }));
   }
 }
