@@ -36,6 +36,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Normalize image reference
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+
       - name: Platform slug
         run: |
           platform="${{ matrix.platform }}"
@@ -99,6 +102,9 @@ jobs:
           merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
+
+      - name: Normalize image reference
+        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
