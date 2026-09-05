@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "robinhood-trading-agent": {
+      "type": "http",
+      "url": "https://www.metza12robinhood.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
+      }
+    }
+  }
+}
