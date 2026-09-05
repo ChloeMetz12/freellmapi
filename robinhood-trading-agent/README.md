@@ -151,6 +151,15 @@ every firing, so it's served over HTTP (`src/mcp/server.ts`, Express +
 with persistent disk (safety/halt state and learned weights live on disk;
 a cold-starting serverless function would lose them between firings).
 
+The `Dockerfile`/`docker-compose.yml` in this package are one way to do
+that — see "Docker" under Setup below. Whatever the container's host is,
+it needs a **stable, internet-reachable URL** for the persistent Claude
+session to call — a host with its own public IP/hostname can work
+directly (the compose file's port publishing defaults to localhost-only;
+see "Docker" below for the one setting that opts it into being reachable);
+a machine behind NAT/a home network needs something in front of it (a
+Cloudflare Tunnel, Tailscale Funnel, etc.) rather than port-forwarding.
+
 ## Setup
 
 ```bash
@@ -159,6 +168,68 @@ npm install
 cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum (openssl rand -hex 32)
 npm run mcp            # starts the decision-engine server (default MODE=dry-run)
 ```
+
+### Docker
+
+```bash
+cd robinhood-trading-agent
+cp .env.example .env   # fill in MCP_AUTH_TOKEN at minimum
+docker compose up -d --build
+curl -i http://localhost:8787/mcp   # expect 401 with no Authorization header
+# (8787 is MCP_HTTP_PORT's default — swap it in if you changed that in .env)
+```
+
+`docker-compose.yml` mounts named volumes at `/app/state` and `/app/runs`
+so safety/halt state, the PDT trade log, and learned weights survive a
+container restart or rebuild — **never** run the image without these
+mounted (or an equivalent bind mount). `SafetyStateStore` only fails
+closed (halts, requires a manual resume) on corrupt/unreadable state; a
+genuinely *missing* state file is treated like a fresh install and falls
+back to defaults, not a halt — so a *lost* volume is a silent reset of the
+kill-switch and PDT history, which is worse than a loud failure.
+
+By default the compose file publishes port 8787 bound to `127.0.0.1` only
+— reachable from this machine for the `curl` check above, but not the LAN
+or internet. If this host already has its own public IP/hostname and you
+want to skip the tunnel below, set `MCP_PUBLISH_BIND=0.0.0.0` (or a
+specific interface IP) in `.env` and re-run `docker compose up -d --build`
+— still gated by `MCP_AUTH_TOKEN` either way. A host behind NAT should
+leave this alone and use the tunnel instead (below), which reaches the
+`mcp` service over the internal compose network, not this published port.
+
+If `LLM_GATEWAY_URL` in `.env` points at `localhost` (the default, for
+this monorepo's own gateway), that won't resolve to the host machine from
+inside the container — point it at `host.docker.internal` (Docker
+Desktop) or the gateway's real reachable address instead.
+
+#### Exposing it if this host is behind NAT (home/office network)
+
+The persistent Claude session calling this server runs outside your
+network, so if this machine doesn't have its own public IP/hostname, don't
+port-forward — use a **Cloudflare Tunnel** instead (no inbound port
+opened on your router at all):
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com/) →
+   **Networking → Tunnels → Create a tunnel**. Choose **Cloudflared**,
+   give it a name (e.g. `robinhood-trading-agent`), and on the connector
+   install step pick **Docker** — copy just the token value
+   (`eyJhIjoi...`), not the whole install command.
+2. Put that token in `.env` as `CLOUDFLARE_TUNNEL_TOKEN`.
+3. Still on the tunnel's setup page, add a **Public Hostname**: pick a
+   subdomain of a zone already on your Cloudflare account (e.g.
+   `rht-mcp.yourdomain.com`), service type **HTTP**, URL `mcp:8787` (or
+   `mcp:<your MCP_HTTP_PORT>` if you changed it from the default in
+   `.env`) — that hostname, not `localhost`, since `cloudflared` reaches
+   the `mcp` service over the compose network by its service name.
+4. Start both services with the tunnel enabled:
+   `docker compose --profile tunnel up -d --build` (plain `docker compose
+   up` never starts `cloudflared` and never requires
+   `CLOUDFLARE_TUNNEL_TOKEN`, for a host that already has its own
+   reachable address).
+5. Confirm from any machine: `curl -i https://rht-mcp.yourdomain.com/mcp`
+   should return 401 with no `Authorization` header, the same as the local
+   check above — that's the URL the persistent Claude Code Remote session
+   should be pointed at.
 
 Then point a persistent Claude Code Remote session at this server's URL as
 an MCP connection, alongside the authorized `RobinHood_Trade` connector, and

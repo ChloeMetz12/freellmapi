@@ -1,0 +1,80 @@
+services:
+  mcp:
+    build: .
+    ports:
+      # Defaults to localhost-only — reachable from this machine (for the
+      # curl auth check in the manual checklist) but not the LAN or
+      # internet. The cloudflared service below reaches this container
+      # over the internal compose network (http://mcp:${MCP_HTTP_PORT:-8787}),
+      # not this published port, so a NAT'd host never needs to change this.
+      # A host with its own public IP/hostname that wants to skip the
+      # tunnel and expose this port directly should set
+      # MCP_PUBLISH_BIND=0.0.0.0 (or a specific interface IP) in .env —
+      # see README.md's "Docker" section. Still gated by MCP_AUTH_TOKEN
+      # either way. Both sides use MCP_HTTP_PORT (same default as
+      # src/config/env.ts, 8787) so changing it in .env can't desync the
+      # published port from the port the server actually listens on.
+      - "${MCP_PUBLISH_BIND:-127.0.0.1}:${MCP_HTTP_PORT:-8787}:${MCP_HTTP_PORT:-8787}"
+    env_file:
+      - .env
+    environment:
+      # dotenv/config (loaded by src/config/env.ts) only reads a .env file
+      # from the working directory — it never overrides variables already
+      # set in the environment, so anything set here (or via env_file
+      # above) is what actually takes effect inside the container.
+      STATE_DIR: /app/state
+      AUDIT_LOG_DIR: /app/runs
+    extra_hosts:
+      # host.docker.internal resolves automatically on Docker Desktop
+      # (Mac/Windows) but NOT on plain Docker Engine on Linux unless
+      # mapped explicitly — this makes the README's LLM_GATEWAY_URL
+      # guidance actually work on a Linux Docker host too.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Safety/halt state, PDT trade log, and learned weights must survive
+      # a container restart or rebuild. SafetyStateStore fails closed
+      # (halts and requires a manual resume) only on corrupt/unreadable
+      # state; a genuinely *missing* state file is NOT a halt — it's
+      # treated like a fresh install and falls back to defaults. That
+      # means a *lost* volume is a silent reset of the kill-switch and PDT
+      # history, not a safe failure — never run this without these mounted.
+      - rht-state:/app/state
+      - rht-runs:/app/runs
+    restart: unless-stopped
+
+  # Exposes the mcp service above at a stable HTTPS hostname without
+  # opening any inbound port on this machine's router/firewall — needed
+  # since the persistent Claude session calling this server lives outside
+  # this network. Behind a "tunnel" profile so it's opt-in: plain
+  # `docker compose up` never starts it (and never requires
+  # CLOUDFLARE_TUNNEL_TOKEN to be set) for a host that already has its own
+  # reachable address. Run `docker compose --profile tunnel up -d --build`
+  # instead once CLOUDFLARE_TUNNEL_TOKEN is set in .env — see README.md's
+  # "Docker" section for how to create the tunnel and get that token.
+  cloudflared:
+    # Pinned rather than :latest, for reproducible deploys — bump
+    # deliberately, not silently on every rebuild. Check
+    # https://github.com/cloudflare/cloudflared/releases for newer tags.
+    image: cloudflare/cloudflared:2026.8.3
+    profiles: ["tunnel"]
+    # Exec form (YAML list), not a shell string — avoids the token going
+    # through shell parsing/quoting.
+    #
+    # Deliberately NOT `${CLOUDFLARE_TUNNEL_TOKEN:?...}` — compose
+    # interpolates every variable in the file during config parsing,
+    # before profile filtering decides which services actually start, so
+    # a required-variable guard here would break a plain `docker compose
+    # up` even when this service is never started. Using `:-` (empty
+    # default) rather than a bare reference for the same reason: it
+    # avoids compose's "variable is not set" warning on a plain
+    # `docker compose up` too, with identical runtime behavior — an empty
+    # token still makes cloudflared itself fail clearly, and only when
+    # --profile tunnel is actually used.
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN:-}"]
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+volumes:
+  rht-state:
+  rht-runs:
