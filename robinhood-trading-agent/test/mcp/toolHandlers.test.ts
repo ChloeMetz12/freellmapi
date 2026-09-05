@@ -78,3 +78,28 @@ describe("ToolHandlers.recordOutcome", () => {
     expect(state.pdtTrades).toEqual([{ symbol: "AAPL", dateIso: "2026-01-15" }]);
   });
 });
+
+describe("ToolHandlers.checkLiveReadiness", () => {
+  it("reflects trades recorded via recordOutcome, including currentEquity", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    await handlers.recordOutcome({
+      symbol: "AAPL",
+      assetClass: "equity",
+      action: "BUY",
+      decisionScore: 0.5,
+      contributingSignals: [],
+      realizedReturnPct: 0.02,
+      isDayTrade: false,
+      currentEquity: 10_200,
+      closedAt: "2026-01-15T23:00:00.000Z",
+    });
+
+    const result = handlers.checkLiveReadiness();
+    expect(result.tradeCount).toBe(1);
+    expect(result.cumulativeReturnPct).toBeCloseTo(0.02, 10);
+    // Nowhere near the graduation thresholds off a single trade.
+    expect(result.ready).toBe(false);
+  });
+});

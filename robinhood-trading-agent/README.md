@@ -51,7 +51,8 @@ So the architecture splits in two:
 1. **This package** — a small always-on **MCP server** (`npm run mcp`)
    exposing the deterministic strategy/safety/learning computation as
    tools: `get_sentiment`, `compute_decision`, `check_safety`, `size_order`,
-   `record_outcome`, `generate_reflection`, `halt`, `resume`, `get_status`.
+   `record_outcome`, `generate_reflection`, `check_live_readiness`, `halt`,
+   `resume`, `get_status`.
    It fetches its own news (Finnhub, NewsAPI — see below) and calls an LLM
    for sentiment reasoning, but it never touches Robinhood.
 2. **A persistent Claude Code Remote session** that holds the authorized
@@ -334,6 +335,34 @@ unbounded drift while still requiring no human approval to take effect.
 A separate, non-authoritative `generate_reflection` tool periodically asks
 an LLM to write a plain-language explanation of recent weight movements for
 the audit log — it cannot itself move a weight.
+
+## Dry-run → live graduation (`check_live_readiness`)
+
+There's no calendar-based rule for when to flip `MODE` from `dry-run` to
+`live` — instead, `check_live_readiness` (`src/learning/liveReadiness.ts`)
+evaluates the dry-run closed-trade history against fixed criteria
+(`RISK_LIMITS.liveReadiness`) and reports whether it looks ready:
+
+- At least **50 closed trades** — fewer than that and "profitable" is
+  mostly noise.
+- At least a **14-day span** between the first and last trade in the
+  window, so the sample isn't just one lucky week.
+- A **win rate of at least 45%**.
+- **Net-positive cumulative return** across the window.
+- **No single trade accounting for more than 50% of total gains** — a
+  record "carried" by one outlier isn't a consistent track record.
+- **No drawdown that would have tripped the daily-loss kill-switch** — the
+  largest peak-to-trough decline across the window's equity readings must
+  stay below `RISK_LIMITS.dailyLossHaltFraction` (10%). This is a proxy,
+  not an exact reconstruction: equity is only sampled at trade-close
+  events here, not continuously, so a real intraday spike-and-recover
+  between two closes wouldn't show up.
+
+**This tool is notify-only — it never changes `MODE` itself.** A human
+still has to look at the result and explicitly flip `MODE=live`, the same
+way a human still has to tap approve on every order regardless of what any
+tool reports. `ready: true` is information for you to act on, not
+authorization the agent grants itself.
 
 ## News & LLM providers
 

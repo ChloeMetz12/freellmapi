@@ -77,12 +77,24 @@ the live wiring or your actual risk tolerance for this specific account.
       swap `sentiment/providers/newsApiWorldNews.ts` for an alternative.
 - [ ] Confirm `LLM_GATEWAY_URL` points at a `freellmapi` deployment (or
       direct provider) reliable enough for a live-money decision path.
-- [ ] Decide the real watchlist (`src/config/watchlist.ts` is a
-      placeholder) and confirm each symbol's asset class is correct.
+- [ ] Confirm the symbol universe is intentionally unrestricted (no
+      watchlist/allowlist exists anywhere in this package — see README's
+      "Unrestricted symbol universe" section) and that's still the choice
+      you want before real money is on the line.
 
-## 6. First live run
+## 6. Confirm the dry-run track record, don't just wait out a calendar
 
-- [ ] Flip `MODE=live` only once steps 1-5 are all checked.
+- [ ] Call `check_live_readiness` and confirm `ready: true` — this checks
+      trade count (≥50), day span (≥14), win rate (≥45%), net profit, no
+      single trade carrying the record, and no drawdown that would have
+      tripped the kill-switch (see README's "Dry-run → live graduation").
+- [ ] `ready: true` is information, not authorization — read the actual
+      numbers in the result (not just the boolean) before deciding to flip
+      `MODE`. This tool never changes `MODE` itself.
+
+## 7. First live run
+
+- [ ] Flip `MODE=live` only once steps 1-6 are all checked.
 - [ ] Start with the smallest realistic amount of capital actually present
       in the account — do not fund it fully before this step.
 - [ ] Watch the audit log closely for the first several live sessions,
