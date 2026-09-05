@@ -64,3 +64,4 @@ export const haltInputSchema = z.object({
 export const resumeInputSchema = z.object({});
 export const getStatusInputSchema = z.object({});
 export const generateReflectionInputSchema = z.object({});
+export const checkLiveReadinessInputSchema = z.object({});
