@@ -37,6 +37,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Normalize image reference
+        shell: bash
         run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
 
       - name: Platform slug
@@ -104,6 +105,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Normalize image reference
+        shell: bash
         run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
 
       - name: Log in to GHCR
