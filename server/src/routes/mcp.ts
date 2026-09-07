@@ -27,6 +27,8 @@ import { getCompressionStats } from '../services/compression/stats.js';
 // server-initiated streams (GET → 405), single JSON responses.
 //
 // Auth mirrors /v1: the unified API key as a Bearer token (or x-api-key).
+// MCP_AUTH_TOKEN optionally adds a second accepted token, dedicated to MCP
+// clients, so they can be handed a credential distinct from the unified key.
 // ─────────────────────────────────────────────────────────────────────────
 
 export const mcpRouter = Router();
@@ -306,12 +308,18 @@ function dispatchRpc(msg: JsonRpcRequest, id: number | string | null): unknown {
 function authenticate(req: Request, res: Response): boolean {
   const token = extractApiToken(req);
   const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const mcpAuthToken = process.env.MCP_AUTH_TOKEN?.trim() || undefined;
+  const matchesUnifiedKey = !!token && timingSafeStringEqual(token, unifiedKey);
+  const matchesMcpToken = !!token && !!mcpAuthToken && timingSafeStringEqual(token, mcpAuthToken);
+  if (!matchesUnifiedKey && !matchesMcpToken) {
     // Echo the request id when the body carries one, so strict JSON-RPC
     // clients can correlate the auth error with their pending call.
     const body = req.body;
     const id = body && typeof body === 'object' && !Array.isArray(body) && body.id !== undefined ? body.id : null;
-    res.status(401).json(rpcError(id, -32001, 'Invalid API key. Authenticate with the unified key as a Bearer token.'));
+    const acceptedCredentials = mcpAuthToken
+      ? 'the unified key or MCP_AUTH_TOKEN'
+      : 'the unified key';
+    res.status(401).json(rpcError(id, -32001, `Invalid API key. Authenticate with ${acceptedCredentials} as a Bearer token.`));
     return false;
   }
   return true;
