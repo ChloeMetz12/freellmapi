@@ -316,7 +316,10 @@ function authenticate(req: Request, res: Response): boolean {
     // clients can correlate the auth error with their pending call.
     const body = req.body;
     const id = body && typeof body === 'object' && !Array.isArray(body) && body.id !== undefined ? body.id : null;
-    res.status(401).json(rpcError(id, -32001, 'Invalid API key. Authenticate with the unified key as a Bearer token.'));
+    const acceptedCredentials = mcpAuthToken
+      ? 'the unified key or MCP_AUTH_TOKEN'
+      : 'the unified key';
+    res.status(401).json(rpcError(id, -32001, `Invalid API key. Authenticate with ${acceptedCredentials} as a Bearer token.`));
     return false;
   }
   return true;

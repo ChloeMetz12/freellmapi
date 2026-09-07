@@ -5,23 +5,27 @@ import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
 
 let app: Express;
 
-async function rpc(message: unknown, opts: { auth?: boolean } = {}) {
+async function rpc(message: unknown, opts: { auth?: boolean; token?: string } = {}) {
   const server = app.listen(0, '127.0.0.1');
-  if (!server.listening) await new Promise<void>(resolve => server.once('listening', () => resolve()));
-  const addr = server.address() as { port: number };
-  const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(opts.auth === false ? {} : { Authorization: `Bearer ${getUnifiedApiKey()}` }),
-    },
-    body: JSON.stringify(message),
-  });
-  const text = await res.text();
-  server.close();
-  let json: any = null;
-  try { json = JSON.parse(text); } catch { /* 202 empty */ }
-  return { status: res.status, body: json };
+  try {
+    if (!server.listening) await new Promise<void>(resolve => server.once('listening', () => resolve()));
+    const addr = server.address() as { port: number };
+    const bearer = opts.token ?? getUnifiedApiKey();
+    const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts.auth === false ? {} : { Authorization: `Bearer ${bearer}` }),
+      },
+      body: JSON.stringify(message),
+    });
+    const text = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch { /* 202 empty */ }
+    return { status: res.status, body: json };
+  } finally {
+    server.close();
+  }
 }
 
 function toolResultJson(body: any): any {
@@ -45,17 +49,11 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
   it('accepts a request authenticated with MCP_AUTH_TOKEN instead of the unified key', async () => {
     process.env.MCP_AUTH_TOKEN = 'a-dedicated-mcp-token';
     try {
-      const server = app.listen(0, '127.0.0.1');
-      if (!server.listening) await new Promise<void>(resolve => server.once('listening', () => resolve()));
-      const addr = server.address() as { port: number };
-      const res = await fetch(`http://127.0.0.1:${addr.port}/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer a-dedicated-mcp-token' },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-      });
-      const body = await res.json();
-      server.close();
-      expect(res.status).toBe(200);
+      const { status, body } = await rpc(
+        { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+        { token: 'a-dedicated-mcp-token' },
+      );
+      expect(status).toBe(200);
       expect(body.result.tools).toBeDefined();
     } finally {
       delete process.env.MCP_AUTH_TOKEN;
@@ -65,7 +63,10 @@ describe('MCP server (/mcp, stateless Streamable HTTP)', () => {
   it('still rejects an unrelated token when MCP_AUTH_TOKEN is set', async () => {
     process.env.MCP_AUTH_TOKEN = 'a-dedicated-mcp-token';
     try {
-      const { status, body } = await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, { auth: false });
+      const { status, body } = await rpc(
+        { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+        { token: 'some-unrelated-token' },
+      );
       expect(status).toBe(401);
       expect(body.error.code).toBe(-32001);
     } finally {
