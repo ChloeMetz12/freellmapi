@@ -234,7 +234,10 @@ opened on your router at all):
 
 Then point a persistent Claude Code Remote session at this server's URL as
 an MCP connection, alongside the authorized `RobinHood_Trade` connector, and
-set up the cron Routine described above.
+set up the cron Routine described above. A ready-to-use instruction prompt for
+that session — encoding the per-cycle flow, the real `RobinHood_Trade` tool
+names, and the hard safety gates — lives in
+[`docs/orchestration-prompt.md`](orchestration-prompt.md).
 
 For local testing without any of that:
 
