@@ -237,7 +237,7 @@ an MCP connection, alongside the authorized `RobinHood_Trade` connector, and
 set up the cron Routine described above. A ready-to-use instruction prompt for
 that session — encoding the per-cycle flow, the real `RobinHood_Trade` tool
 names, and the hard safety gates — lives in
-[`docs/orchestration-prompt.md`](orchestration-prompt.md).
+[`docs/orchestration-prompt.md`](docs/orchestration-prompt.md).
 
 For local testing without any of that:
 
