@@ -30,6 +30,22 @@ export interface RiskLimits {
     minWeight: number;
     maxWeight: number;
   };
+  /**
+   * Gates whether check_live_readiness reports the dry-run track record as
+   * ready for a human to consider flipping MODE=live. This is a
+   * notify-only gate, deliberately: it never flips MODE itself. See
+   * learning/liveReadiness.ts.
+   */
+  liveReadiness: {
+    /** Below this many closed dry-run trades, "profitable" is mostly noise. */
+    minTrades: number;
+    /** Minimum calendar-day span from the first to the last trade in the window, so the sample isn't just one lucky week. */
+    minTradingDaySpan: number;
+    /** Minimum fraction of trades with a positive realizedReturnPct. */
+    minWinRate: number;
+    /** No single trade's gain may exceed this fraction of total gains — catches a record "carried" by one outlier. */
+    maxSingleTradeGainShare: number;
+  };
 }
 
 export const RISK_LIMITS: RiskLimits = {
@@ -71,6 +87,14 @@ export const RISK_LIMITS: RiskLimits = {
     /** Absolute clamp — no signal's weight can dominate or zero out entirely. */
     minWeight: 0.1,
     maxWeight: 3.0,
+  },
+
+  /** check_live_readiness's dry-run-to-live graduation criteria (notify-only, see learning/liveReadiness.ts). */
+  liveReadiness: {
+    minTrades: 50,
+    minTradingDaySpan: 14,
+    minWinRate: 0.45,
+    maxSingleTradeGainShare: 0.5,
   },
 };
 

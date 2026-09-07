@@ -17,7 +17,7 @@ import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
 import { tokensMatch } from "./auth.js";
-import { getSentimentInputSchema, getSymbolChatterInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema } from "../schema/tools.js";
+import { getSentimentInputSchema, getSymbolChatterInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema, checkLiveReadinessInputSchema } from "../schema/tools.js";
 
 const env = loadEnv();
 applyEnvRiskOverrides(env);
@@ -118,6 +118,16 @@ function buildServer(): McpServer {
       inputSchema: resumeInputSchema.shape,
     },
     async () => jsonResult(handlers.resume()),
+  );
+
+  server.registerTool(
+    "check_live_readiness",
+    {
+      title: "Check whether the dry-run track record looks ready for live trading",
+      description: "Evaluates the dry-run closed-trade history against fixed graduation criteria (minimum trade count, minimum day span, minimum win rate, net profitability, no single trade carrying the record, no drawdown that would have tripped the daily-loss kill-switch). This is notify-only: it never changes MODE itself. A human must review this result and explicitly set MODE=live — do not treat ready=true as authorization to place a live order.",
+      inputSchema: checkLiveReadinessInputSchema.shape,
+    },
+    async () => jsonResult(handlers.checkLiveReadiness()),
   );
 
   server.registerTool(

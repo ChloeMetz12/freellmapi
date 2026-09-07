@@ -9,7 +9,11 @@ interface TradeHistoryEntry {
   adjustments: WeightAdjustment[];
 }
 
-const MAX_HISTORY = 50;
+// Must stay above LIVE_READINESS.minTrades (see config/riskLimits.ts) with
+// headroom — evaluateLiveReadiness reads the full stored history, and a cap
+// exactly at the threshold would mean the oldest qualifying trade rolls off
+// the instant a new one arrives, every time.
+const MAX_HISTORY = 60;
 
 /** Rolling window of recent closed trades + their weight adjustments, feeding the periodic LLM reflection pass. */
 export class TradeHistoryStore {
@@ -41,5 +45,10 @@ export class TradeHistoryStore {
 
   recent(n = 10): TradeHistoryEntry[] {
     return this.entries.slice(-n);
+  }
+
+  /** The full rolling window (up to MAX_HISTORY entries) — used by evaluateLiveReadiness. */
+  all(): TradeHistoryEntry[] {
+    return [...this.entries];
   }
 }

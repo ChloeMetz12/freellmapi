@@ -3,6 +3,13 @@
     "miyo": {
       "type": "http",
       "url": "https://relay.miyo.md/mcp"
+    },
+    "robinhood-trading-agent": {
+      "type": "http",
+      "url": "https://www.metza12robinhood.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
+      }
     }
   }
 }

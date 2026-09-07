@@ -5,6 +5,7 @@ import multer from 'multer';
 import path from 'path';
 import { getDb } from '../db/index.js';
 import { resolveProvider, getAllProviders } from '../providers/index.js';
+import type { CloudflareProvider } from '../providers/cloudflare.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import { parseKeysFromFile, stripJsoncComments, stripTrailingCommas } from '../lib/key-parser.js';
 import { assessProviderUrl } from '../lib/url-guard.js';
@@ -846,6 +847,38 @@ keysRouter.post('/custom/discover-models', async (req: Request, res: Response) =
       return;
     }
     res.status(502).json({ error: { message: `Model discovery failed: ${err?.message ?? 'unknown error'}` } });
+  }
+});
+
+const discoverCloudflareAccountSchema = z.object({
+  token: z.string().trim().min(1, 'token is required').max(4096),
+});
+
+// POST /cloudflare/discover-account — the Add-key form's Cloudflare pane needs
+// an account_id to pair with the pasted token; most users have to dig it out
+// of a dashboard URL to get it. This calls Cloudflare's GET /accounts with the
+// token itself so the form can fill (or offer a pick from) the account list
+// instead. A token scoped only to "Workers AI: Edit" (the dashboard's own
+// token template) lacks Account Read and 403s here — the form falls back to
+// manual entry, same as before this endpoint existed.
+keysRouter.post('/cloudflare/discover-account', async (req: Request, res: Response) => {
+  const parsed = discoverCloudflareAccountSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+
+  const provider = resolveProvider('cloudflare') as CloudflareProvider | undefined;
+  if (!provider) {
+    res.status(500).json({ error: { message: 'Cloudflare provider is not registered' } });
+    return;
+  }
+
+  try {
+    const accounts = await provider.discoverAccounts(parsed.data.token);
+    res.json({ accounts });
+  } catch (err: any) {
+    res.status(err?.status ?? 502).json({ error: { message: err?.message ?? 'Cloudflare account lookup failed' } });
   }
 });
 

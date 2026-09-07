@@ -1,0 +1,11 @@
+node_modules
+dist
+*.tsbuildinfo
+state
+runs
+chatter-cache
+.env
+.env.local
+test
+backtest
+.git
