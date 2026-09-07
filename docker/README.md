@@ -109,8 +109,11 @@ Example `freellmapi.config.json`:
 ## Remote Access via Cloudflare Tunnel
 
 By default the container's port is only published on `127.0.0.1` (see
-`HOST_BIND` above) because FreeLLMAPI is single-user with no auth beyond the
-unified API key. If you want to reach it from outside your LAN, an optional
+`HOST_BIND` above) because FreeLLMAPI is single-user: `/v1/*` checks only the
+unified API key, and the dashboard has its own login (plus a first-run setup
+code gating remote account creation) rather than the multi-user access
+controls a public-facing app would need. If you want to reach it from outside
+your LAN, an optional
 `cloudflared` service can expose it through a [Cloudflare
 Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
 instead of opening a port on your router.
@@ -128,9 +131,10 @@ instead of opening a port on your router.
    Treat this token like a password — anyone with it can run a connector for
    your tunnel. Never commit it; `.env` is already gitignored.
 3. **Add a Cloudflare Access policy** to the public hostname before exposing
-   it. The app itself only checks the unified API key on `/v1/*` — the
-   dashboard has no additional login gate reachable from the public
-   internet, so Access is what actually keeps strangers out.
+   it. `/v1/*` only checks the unified API key, and while the dashboard does
+   have its own login, it was built for one trusted user on a LAN, not for
+   standing up to the public internet — an Access policy (MFA, IP
+   allowlists) is what actually keeps strangers out.
 4. Start everything, including the tunnel, with the `tunnel` profile:
 
    ```bash
