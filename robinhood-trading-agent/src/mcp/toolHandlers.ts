@@ -5,6 +5,7 @@ import { WeightStore } from "../learning/weightStore.js";
 import { TradeHistoryStore } from "../learning/tradeHistoryStore.js";
 import { applyLearningUpdate } from "../learning/update.js";
 import { generateReflection } from "../learning/reflection.js";
+import { evaluateLiveReadiness } from "../learning/liveReadiness.js";
 import { SafetyStateStore } from "../safety/state.js";
 import { evaluateSafety, halt as haltSafety, resume as resumeSafety } from "../safety/killSwitch.js";
 import { canRecordDayTrade, recordDayTrade } from "../safety/pdt.js";
@@ -151,7 +152,7 @@ export class ToolHandlers {
     this.auditLog.record({ type: "learning_update", symbol: input.symbol, realizedReturnPct: input.realizedReturnPct, adjustments });
 
     this.tradeHistory.append({
-      trade: { symbol: input.symbol, action: input.action, realizedReturnPct: input.realizedReturnPct, closedAt },
+      trade: { symbol: input.symbol, action: input.action, realizedReturnPct: input.realizedReturnPct, closedAt, currentEquity: input.currentEquity },
       adjustments,
     });
 
@@ -183,6 +184,16 @@ export class ToolHandlers {
       weights: this.weightStore.get(),
       riskLimits: RISK_LIMITS,
     };
+  }
+
+  /**
+   * Notify-only: reports whether the dry-run trade history meets the
+   * graduation criteria in RISK_LIMITS.liveReadiness. Never flips MODE
+   * itself — that decision stays with a human, deliberately (see README).
+   */
+  checkLiveReadiness() {
+    const trades = this.tradeHistory.all().map((e) => e.trade);
+    return evaluateLiveReadiness(trades);
   }
 
   async generateReflection() {

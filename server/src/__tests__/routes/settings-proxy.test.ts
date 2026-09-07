@@ -24,13 +24,22 @@ async function request(app: Express, method: string, path: string, body: any, to
 // PUT /api/settings/proxy is the only place a proxy URL is validated, so the
 // scheme allow-list here is what actually decides whether a user can save
 // `socks5h://` from the dashboard (#630).
+// Ambient proxy env vars (upper- and lower-case spellings) that resolveProxySource
+// falls back to when the dashboard setting is empty. A host or CI environment that
+// exports one of these (e.g. behind a corporate/sandbox proxy) would otherwise leak
+// through and break the "clears the proxy" case below, so they're stripped for the
+// duration of this suite and restored afterward.
+const ENV_PROXY_VARS = ['PROXY_URL', 'ALL_PROXY', 'all_proxy', 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
+
 describe('PUT /api/settings/proxy scheme validation', () => {
   let app: Express;
   let token: string;
+  let savedEnv: Record<string, string | undefined>;
 
   beforeAll(() => {
+    savedEnv = Object.fromEntries(ENV_PROXY_VARS.map(name => [name, process.env[name]]));
+    for (const name of ENV_PROXY_VARS) delete process.env[name];
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
-    delete process.env.PROXY_URL;
     initDb(':memory:');
     app = createApp();
     token = mintDashboardToken();
@@ -38,6 +47,10 @@ describe('PUT /api/settings/proxy scheme validation', () => {
 
   afterAll(() => {
     applyProxyUrl('');
+    for (const name of ENV_PROXY_VARS) {
+      if (savedEnv[name] === undefined) delete process.env[name];
+      else process.env[name] = savedEnv[name];
+    }
   });
 
   const accepted = [

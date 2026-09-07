@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { ModelCombobox } from '@/components/model-combobox'
 import { FieldError } from '@/components/ui/field-error'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { ApiKey, Platform } from '../../../../shared/types'
 import { useI18n } from '@/i18n'
 import { toast } from '@/lib/toast'
@@ -46,6 +47,25 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
   // holding five Groq keys reopened this dialog five times. Off by default: the
   // single-key field masks what you type, and a textarea cannot.
   const [several, setSeveral] = useState(false)
+
+  // Cloudflare account auto-detect: the pasted token alone is enough to look
+  // up which account(s) it can see (GET /accounts), so the user doesn't have
+  // to dig the account id out of a dashboard URL. `null` = not attempted yet
+  // (or the last attempt was cleared by an edit); an array is the last result,
+  // shown as a picker when it holds more than one account.
+  const [cfAccounts, setCfAccounts] = useState<{ id: string; name: string }[] | null>(null)
+  const discoverAccount = useMutation({
+    meta: { silenceToast: true },
+    mutationFn: (token: string) =>
+      apiFetch<{ accounts: { id: string; name: string }[] }>('/api/keys/cloudflare/discover-account', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      }),
+    onSuccess: (data) => {
+      if (data.accounts.length === 1) setAccountId(data.accounts[0].id)
+      setCfAccounts(data.accounts)
+    },
+  })
 
   // #707: the platform dropdown had no search and no way to skip providers that
   // already have keys, which is painful at thirty-odd entries. The shared
@@ -212,15 +232,48 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
         </div>
         {needsAccountId && (
           <div className="space-y-1.5">
-            <Label className="text-xs">{t('keys.accountId')}</Label>
-            <Input
-              value={accountId}
-              onChange={e => setAccountId(e.target.value)}
-              placeholder="a1b2c3d4…"
-              className="w-[200px] font-mono text-xs"
-              aria-invalid={addAttempted && !!accountIdError}
-            />
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">{t('keys.accountId')}</Label>
+              <button
+                type="button"
+                disabled={!apiKey.trim() || discoverAccount.isPending}
+                onClick={() => discoverAccount.mutate(apiKey.trim())}
+                className="text-[11px] underline-offset-2 hover:underline text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:hover:no-underline"
+              >
+                {discoverAccount.isPending ? t('keys.detectingAccountId') : t('keys.detectAccountId')}
+              </button>
+            </div>
+            {cfAccounts && cfAccounts.length > 1 ? (
+              <Select value={accountId} onValueChange={v => setAccountId(v ?? '')}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder={t('keys.selectAccount')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {cfAccounts.map(a => (
+                    <SelectItem key={a.id} value={a.id} label={`${a.name} (${a.id})`}>
+                      {a.name} <span className="text-muted-foreground font-mono">({a.id})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={accountId}
+                onChange={e => { setAccountId(e.target.value); setCfAccounts(null) }}
+                placeholder="a1b2c3d4…"
+                className="w-[200px] font-mono text-xs"
+                aria-invalid={addAttempted && !!accountIdError}
+              />
+            )}
             {addAttempted && <FieldError error={accountIdError} />}
+            {discoverAccount.isError && (
+              <p className="text-destructive text-[11px]">
+                {t('keys.detectAccountIdFailed', { reason: (discoverAccount.error as Error).message })}
+              </p>
+            )}
+            {cfAccounts && cfAccounts.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">{t('keys.noAccountsFound')}</p>
+            )}
           </div>
         )}
         <div className="space-y-1.5 flex-1 min-w-[240px]">
@@ -249,7 +302,7 @@ export function AddKeyForm({ onSuccess, initialPlatform }: { onSuccess: (offer?:
             <Input
               type="password"
               value={isKeyless ? '' : apiKey}
-              onChange={e => setApiKey(e.target.value)}
+              onChange={e => { setApiKey(e.target.value); if (needsAccountId) setCfAccounts(null) }}
               placeholder={isKeyless ? t('keys.noKeyNeededPlaceholder') : (needsAccountId ? t('keys.bearerTokenPlaceholder') : t('keys.pasteKeyPlaceholder'))}
               className="font-mono text-xs"
               disabled={isKeyless}

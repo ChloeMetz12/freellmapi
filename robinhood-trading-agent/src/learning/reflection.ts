@@ -23,6 +23,8 @@ export interface ClosedTradeSummary {
   action: "BUY" | "SELL";
   realizedReturnPct: number;
   closedAt: string;
+  /** Account equity as of this trade's close — feeds liveReadiness's drawdown check. Not used by the reflection prompt itself. */
+  currentEquity: number;
 }
 
 /**
