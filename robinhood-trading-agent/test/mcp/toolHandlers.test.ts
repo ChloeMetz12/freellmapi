@@ -178,6 +178,29 @@ describe("ToolHandlers paper-position flow", () => {
   });
 });
 
+describe("ToolHandlers.sizeOrder dry-run paper floor", () => {
+  it("returns a non-null plan in dry-run when broker cash/margin are $0 so paper positions can open", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+    const closes = Array.from({ length: 30 }, (_, i) => 100 + (i % 3));
+    const result = handlers.sizeOrder({
+      symbol: "BTC-USD",
+      currentPrice: 100,
+      action: "BUY",
+      confidence: 0.2,
+      score: 0.2,
+      contributingSignals: [],
+      cash: 0,
+      maxMarginBuyingPower: 0,
+      bars: barsFromCloses(closes),
+    });
+    expect(result.usedDryRunPaperBuyingPower).toBe(true);
+    expect(result.plan).not.toBeNull();
+    expect(result.plan!.notionalUsd).toBeGreaterThan(0);
+    expect(result.executeOrder).toBe(false);
+  });
+});
+
 describe("ToolHandlers.checkLiveReadiness", () => {
   it("reflects trades recorded via recordOutcome, including currentEquity", async () => {
     dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
@@ -192,7 +215,7 @@ describe("ToolHandlers.checkLiveReadiness", () => {
       realizedReturnPct: 0.02,
       isDayTrade: false,
       currentEquity: 10_200,
-      closedAt: "2026-01-15T23:00:00.000Z",
+      closedAt: "2026-09-08T23:00:00.000Z",
     });
 
     const result = handlers.checkLiveReadiness();

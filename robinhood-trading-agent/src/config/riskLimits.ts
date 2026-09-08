@@ -46,6 +46,12 @@ export interface RiskLimits {
     /** No single trade's gain may exceed this fraction of total gains — catches a record "carried" by one outlier. */
     maxSingleTradeGainShare: number;
   };
+  /**
+   * Synthetic buying power used only in dry-run when the broker reports $0
+   * cash/margin — keeps size_order from returning plan=null so paper
+   * positions can still accumulate a track record.
+   */
+  dryRunPaperBuyingPowerUsd: number;
 }
 
 export const RISK_LIMITS: RiskLimits = {
@@ -96,6 +102,14 @@ export const RISK_LIMITS: RiskLimits = {
     minWinRate: 0.45,
     maxSingleTradeGainShare: 0.5,
   },
+
+  /**
+   * When MODE=dry-run and the orchestrator passes cash=0 / no margin
+   * (common on Robinhood "agentic" accounts with no buying power), size_order
+   * still needs a non-zero plan so open_paper_position can run. Live mode
+   * never uses this — a zero-size live plan stays null.
+   */
+  dryRunPaperBuyingPowerUsd: 1_000,
 };
 
 /**

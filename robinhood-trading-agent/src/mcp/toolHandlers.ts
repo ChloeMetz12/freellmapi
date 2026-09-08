@@ -20,6 +20,7 @@ import { buildOrderPlan } from "../execution/orderPlan.js";
 import type { AssetClass } from "../config/watchlist.js";
 import type { MarketTrendSnapshot } from "../sentiment/types.js";
 import { assertSortedAscending, type OhlcvBar } from "../marketdata/types.js";
+import { fetchCryptoHistoricals, type CryptoHistoricalInterval } from "../marketdata/cryptoHistoricals.js";
 import type { Action, SignalKey } from "../strategy/types.js";
 
 /** Wires the deterministic strategy/safety/learning modules to the stateful stores the MCP tools need. Constructed once per process, from env. */
@@ -67,6 +68,25 @@ export class ToolHandlers {
     return result;
   }
 
+  /**
+   * Crypto OHLCV for compute_decision when RobinHood_Trade has no
+   * get_crypto_historicals. Public Binance.US klines — not broker fills.
+   */
+  async getCryptoHistoricals(symbol: string, interval: CryptoHistoricalInterval = "1h", limit = 100) {
+    const result = await fetchCryptoHistoricals({ symbol, interval, limit });
+    assertSortedAscending(result.bars);
+    this.auditLog.record({
+      type: "marketdata",
+      subtype: "crypto_historicals",
+      symbol: result.symbol,
+      binanceSymbol: result.binanceSymbol,
+      interval: result.interval,
+      source: result.source,
+      barCount: result.bars.length,
+    });
+    return result;
+  }
+
   computeDecision(symbol: string, bars: OhlcvBar[]) {
     // The MCP schema boundary doesn't (can't, via zod alone) enforce bar
     // ordering — every indicator/pattern detector assumes oldest-first and
@@ -109,9 +129,23 @@ export class ToolHandlers {
     // Same ordering assumption as computeDecision — computePositionSize's
     // ATR call needs oldest-first bars too.
     assertSortedAscending(input.bars);
+
+    let cash = input.cash;
+    let maxMarginBuyingPower = input.maxMarginBuyingPower;
+    let usedDryRunPaperBuyingPower = false;
+    // Dry-run paper tracking must not stall when the broker/agentic account
+    // reports $0 buying power — that is common and unrelated to whether the
+    // strategy signal is actionable. Live mode keeps the real zero-size plan.
+    const marginHeadroomPreview = this.env.MARGIN_ENABLED ? maxMarginBuyingPower * RISK_LIMITS.marginUtilizationCap : 0;
+    if (this.env.MODE === "dry-run" && cash + marginHeadroomPreview <= 0 && (input.action === "BUY" || input.action === "SELL")) {
+      cash = RISK_LIMITS.dryRunPaperBuyingPowerUsd;
+      maxMarginBuyingPower = 0;
+      usedDryRunPaperBuyingPower = true;
+    }
+
     const sizing = computePositionSize({
-      cash: input.cash,
-      maxMarginBuyingPower: input.maxMarginBuyingPower,
+      cash,
+      maxMarginBuyingPower,
       marginEnabled: this.env.MARGIN_ENABLED,
       confidence: input.confidence,
       bars: input.bars,
@@ -119,7 +153,7 @@ export class ToolHandlers {
     const decision = { action: input.action, confidence: input.confidence, score: input.score, contributingSignals: input.contributingSignals };
     const plan = buildOrderPlan(input.symbol, input.currentPrice, decision, sizing);
     const executeOrder = plan !== null && this.env.MODE === "live";
-    const result = { sizing, plan, executeOrder, mode: this.env.MODE };
+    const result = { sizing, plan, executeOrder, mode: this.env.MODE, usedDryRunPaperBuyingPower };
     // Include the symbol and core decision inputs alongside the sizing
     // result — without them, an order-event log line (especially a HOLD,
     // where plan is null) can't be correlated back to the decision that
