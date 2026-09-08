@@ -39,6 +39,26 @@ export const sizeOrderInputSchema = z.object({
   bars: z.array(ohlcvBarSchema).min(1),
 });
 
+export const openPaperPositionInputSchema = z.object({
+  symbol: z.string().min(1),
+  assetClass: assetClassSchema,
+  action: z.enum(["BUY", "SELL"]),
+  entryPrice: z.number().finite().positive(),
+  quantity: z.number().finite().positive(),
+  decisionScore: z.number().finite().min(-1).max(1),
+  contributingSignals: z.array(z.object({ key: z.enum(SIGNAL_KEYS), vote: z.number().finite().min(-1).max(1) })),
+  openedAt: z.string().datetime({ offset: true }).optional(),
+});
+
+export const getPaperPositionsInputSchema = z.object({});
+
+export const closePaperPositionInputSchema = z.object({
+  symbol: z.string().min(1),
+  exitPrice: z.number().finite().positive(),
+  currentEquity: z.number().finite().positive(),
+  closedAt: z.string().datetime({ offset: true }).optional(),
+});
+
 export const recordOutcomeInputSchema = z.object({
   symbol: z.string().min(1),
   assetClass: assetClassSchema,

@@ -1,7 +1,7 @@
 import { mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type AuditEventType = "decision" | "order" | "learning_update" | "halt" | "resume" | "sentiment";
+export type AuditEventType = "decision" | "order" | "paper_position" | "learning_update" | "halt" | "resume" | "sentiment";
 
 export type AuditEventInput = { type: AuditEventType } & Record<string, unknown>;
 

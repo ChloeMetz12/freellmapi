@@ -51,6 +51,7 @@ So the architecture splits in two:
 1. **This package** — a small always-on **MCP server** (`npm run mcp`)
    exposing the deterministic strategy/safety/learning computation as
    tools: `get_sentiment`, `compute_decision`, `check_safety`, `size_order`,
+   `open_paper_position`, `get_paper_positions`, `close_paper_position`,
    `record_outcome`, `generate_reflection`, `check_live_readiness`, `halt`,
    `resume`, `get_status`.
    It fetches its own news (Finnhub, NewsAPI — see below) and calls an LLM
@@ -338,6 +339,44 @@ unbounded drift while still requiring no human approval to take effect.
 A separate, non-authoritative `generate_reflection` tool periodically asks
 an LLM to write a plain-language explanation of recent weight movements for
 the audit log — it cannot itself move a weight.
+
+## Paper-position tracking in dry-run
+
+`record_outcome` — and with it, everything `check_live_readiness` evaluates
+— only ever fires for a trade that actually closed. In **live** mode that's
+detected from the real broker account (`get_equity_positions` /
+`get_equity_orders`, per the orchestration prompt). In **dry-run** mode
+that path structurally never fires: dry-run never calls a `place_*` tool
+(see "Dry-run means no orders" above), so nothing this strategy proposes
+ever appears in the broker account for a later cycle to find as closed.
+Left as originally designed, this meant dry-run could run indefinitely and
+never accumulate a single closed trade — `check_live_readiness` would stay
+at 0 trades forever, regardless of how good or bad the strategy actually
+was.
+
+`open_paper_position` / `get_paper_positions` / `close_paper_position`
+(`src/execution/paperPositionStore.ts`) are the in-package substitute: a
+small, server-side-persisted "one simulated position per symbol" tracker.
+
+- After `size_order` returns a non-null plan in dry-run mode, call
+  `open_paper_position` to record the simulated entry (symbol, side, entry
+  price, size, and the decision inputs `record_outcome` will eventually
+  need). It refuses to open a second position for a symbol that already
+  has one open, rather than silently overwriting the original cost basis.
+- Each cycle, call `get_paper_positions` to see what's still open, and
+  decide — using the same `compute_decision` output as any other cycle,
+  e.g. an opposite-signal reversal, a stop-loss/take-profit band, or end of
+  the trading session — whether an open position's exit condition has been
+  met. This package doesn't invent that exit policy itself, on purpose:
+  it never decides *when* to trade, only *what* a decision implies once
+  asked (same philosophy as `compute_decision` itself) — see
+  `docs/orchestration-prompt.md` for the concrete rule used.
+- When it has, call `close_paper_position` with the current price. It
+  computes the realized return from the stored entry, then runs through
+  the *exact same* `recordOutcome` path a real closed trade would — the
+  same learning-weight update, the same PDT day-trade counting, the same
+  trade-history append `check_live_readiness` reads. A dry-run trade closed
+  this way is indistinguishable, downstream, from a live one.
 
 ## Dry-run → live graduation (`check_live_readiness`)
 

@@ -79,6 +79,105 @@ describe("ToolHandlers.recordOutcome", () => {
   });
 });
 
+describe("ToolHandlers paper-position flow", () => {
+  it("opens, lists, and closes a paper position, feeding the same path recordOutcome would", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    const opened = handlers.openPaperPosition({
+      symbol: "AAPL",
+      assetClass: "equity",
+      action: "BUY",
+      entryPrice: 200,
+      quantity: 1,
+      decisionScore: 0.5,
+      contributingSignals: [],
+      openedAt: "2026-01-15T14:00:00.000Z",
+    });
+    expect(opened.opened).toBe(true);
+    expect(handlers.getPaperPositions().positions).toHaveLength(1);
+
+    const closed = await handlers.closePaperPosition({
+      symbol: "AAPL",
+      exitPrice: 220,
+      currentEquity: 10_000,
+      closedAt: "2026-01-15T20:00:00.000Z",
+    });
+
+    expect(closed.closed).toBe(true);
+    expect(closed.realizedReturnPct).toBeCloseTo(0.1, 10);
+    expect(handlers.getPaperPositions().positions).toHaveLength(0);
+
+    const readiness = handlers.checkLiveReadiness();
+    expect(readiness.tradeCount).toBe(1);
+    expect(readiness.cumulativeReturnPct).toBeCloseTo(0.1, 10);
+  });
+
+  it("computes a positive return for a short (SELL) paper position when price falls", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    handlers.openPaperPosition({
+      symbol: "AAPL",
+      assetClass: "equity",
+      action: "SELL",
+      entryPrice: 200,
+      quantity: 1,
+      decisionScore: -0.5,
+      contributingSignals: [],
+      openedAt: "2026-01-15T14:00:00.000Z",
+    });
+
+    const closed = await handlers.closePaperPosition({
+      symbol: "AAPL",
+      exitPrice: 180,
+      currentEquity: 10_000,
+      closedAt: "2026-01-15T20:00:00.000Z",
+    });
+
+    expect(closed.realizedReturnPct).toBeCloseTo(0.1, 10);
+  });
+
+  it("refuses to open a second position for a symbol that already has one open", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "BUY", entryPrice: 200, quantity: 1, decisionScore: 0.5, contributingSignals: [] });
+    const second = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "BUY", entryPrice: 205, quantity: 1, decisionScore: 0.5, contributingSignals: [] });
+
+    expect(second.opened).toBe(false);
+    expect(handlers.getPaperPositions().positions).toHaveLength(1);
+  });
+
+  it("reports closed=false for a symbol with no open paper position", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    const closed = await handlers.closePaperPosition({ symbol: "AAPL", exitPrice: 200, currentEquity: 10_000 });
+    expect(closed.closed).toBe(false);
+  });
+
+  it("marks a same-day round trip as a PDT day trade", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir));
+
+    handlers.openPaperPosition({
+      symbol: "AAPL",
+      assetClass: "equity",
+      action: "BUY",
+      entryPrice: 200,
+      quantity: 1,
+      decisionScore: 0.5,
+      contributingSignals: [],
+      openedAt: "2026-01-15T14:00:00.000Z",
+    });
+    await handlers.closePaperPosition({ symbol: "AAPL", exitPrice: 205, currentEquity: 10_000, closedAt: "2026-01-15T20:00:00.000Z" });
+
+    const state = JSON.parse(readFileSync(join(dir, "safety-state.json"), "utf-8"));
+    expect(state.pdtTrades).toEqual([{ symbol: "AAPL", dateIso: "2026-01-15" }]);
+  });
+});
+
 describe("ToolHandlers.checkLiveReadiness", () => {
   it("reflects trades recorded via recordOutcome, including currentEquity", async () => {
     dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
