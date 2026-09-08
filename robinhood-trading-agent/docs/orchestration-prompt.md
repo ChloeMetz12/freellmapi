@@ -42,8 +42,9 @@ are attached:
   brain. It never touches Robinhood. Tools: `get_sentiment`,
   `get_symbol_chatter`, `get_crypto_historicals`, `compute_decision`,
   `check_safety`, `size_order`, `open_paper_position`, `get_paper_positions`,
-  `close_paper_position`, `record_outcome`, `generate_reflection`,
-  `check_live_readiness`, `halt`, `resume`, `get_status`.
+  `close_paper_position`, `record_outcome`, `record_research_event`,
+  `get_research_memory`, `generate_reflection`, `check_live_readiness`,
+  `halt`, `resume`, `get_status`.
 
 You are the glue. You never invent trade decisions yourself — the
 decision-engine computes them; you fetch data, relay it, enforce the gates
@@ -133,6 +134,46 @@ ETFs optional if you can still get historicals).
 **Do not** call order-placement tools while discovering symbols. **Do not**
 create/update/delete Robinhood watchlists.
 
+## Research briefing (every cycle — forums, sites, failures → memory)
+
+After halt check and **before** the per-symbol decision loop, compound
+external understanding into durable memory. Built-in engine providers already
+cover StockTwits, X, Finnhub, NewsAPI, Benzinga, CoinGecko — this step adds
+**forums and market-watcher sites the APIs don't cover**, and records
+failures so the next cycle gets smarter.
+
+1. **Load memory:** `get_research_memory({ limit: 30 })`. Note
+   `failureCountsBySource` — prefer skipping sources that failed ≥2 times
+   recently unless you have a strong reason to retry once.
+2. **Skim 3–6 diverse sources** (rotate; don't hammer the same site every
+   cycle). Prefer free public pages via `WebSearch` + `WebFetch`:
+   - Forums / social: Reddit (`r/stocks`, `r/investing`, `r/wallstreetbets`
+     hot — treat WSB as noisy), StockTwits trending (web if API chatter
+     degraded), TradingView ideas (optional).
+   - Market watchers / screeners: Yahoo Finance (gainers/news), Finviz
+     (map/screener headlines), MarketWatch, Seeking Alpha news headlines
+     (headlines only — no paywall scrape of full articles).
+   - Macro / wire context already partly in `get_sentiment`; still record
+     any distinct catalyst you find for symbols in `CYCLE_UNIVERSE`.
+3. **For each useful skim or hit**, call
+   `record_research_event({ kind: "forum_skim"|"search_hit"|"thesis",
+   source, summary, symbol?, url?, tags? })`. Keep summaries factual and
+   short (who/what/bias). Tag sectors when clear (`tech`, `semis`,
+   `natural-resources`, `crypto`).
+4. **For every failed WebSearch/WebFetch/MCP research call**, call
+   `record_research_event({ kind: "search_fail"|"tool_fail", source,
+   summary: "<error or empty>", url? })`. Do **not** invent sentiment
+   scores from a failed fetch.
+5. **Lessons:** when a prior thesis was wrong relative to today's price
+   action or a closed paper trade, log
+   `record_research_event({ kind: "lesson", source: "self", summary: "..." })`.
+6. **Hard rule:** research memory informs *which symbols to prioritize and
+   what catalysts to mention in the report* — it does **not** replace
+   `compute_decision`. Never invent BUY/SELL from a forum post alone.
+
+Built-in decision-engine calls still required each cycle:
+`get_sentiment` (macro) + per-symbol `get_symbol_chatter` (StockTwits/X).
+
 ## Per-cycle procedure
 
 1. **Account snapshot.** `RobinHood_Trade.get_accounts` (call first) →
@@ -146,16 +187,18 @@ create/update/delete Robinhood watchlists.
    END the cycle.
 3. **Build `CYCLE_UNIVERSE`** via "Universe construction" above. If the
    universe is empty after construction, report that and end.
-4. **Macro sentiment (slower cadence).** Roughly once at open and periodically
+4. **Research briefing** via "Research briefing" above (`get_research_memory`
+   → skims → `record_research_event` for hits and failures).
+5. **Macro sentiment (slower cadence).** Roughly once at open and periodically
    after, call decision-engine `get_sentiment` with a market-trend snapshot
    covering **broad market, tech, semiconductors, natural resources/energy,
    and volatility** — derive %-moves from proxies such as SPY, QQQ, SMH,
    XLB/XLE, and a vol proxy via `get_equity_quotes` / `get_index_quotes`.
    It caches server-side; don't call it every symbol.
-5. **Dry-run only, once before the per-symbol loop:** call decision-engine
+6. **Dry-run only, once before the per-symbol loop:** call decision-engine
    `get_paper_positions()` (also used in universe construction — reuse the
    result; do not skip managing opens).
-6. **For each symbol in `CYCLE_UNIVERSE`:**
+7. **For each symbol in `CYCLE_UNIVERSE`:**
    a. **Fetch OHLCV** (oldest-first, ≥50 bars): equities →
       `RobinHood_Trade.get_equity_historicals`; crypto → decision-engine
       `get_crypto_historicals(symbol)` (Binance.US public klines — RobinHood_Trade
@@ -166,7 +209,7 @@ create/update/delete Robinhood watchlists.
    d. **Safety:** decision-engine `check_safety(currentEquity, marginMaintenanceUtilization)`.
       If `halted`, STOP all trading for the cycle (report reason).
    e. **Manage an already-open position for this symbol, mode-gated:**
-      - **dry-run:** if step 5's `get_paper_positions()` showed an open
+      - **dry-run:** if step 6's `get_paper_positions()` showed an open
         position for this symbol, and this cycle's decision reverses it
         (the position's `action` is `BUY` and this decision's `action` is
         `SELL`, or vice versa) — or this is the last bar of the equities
@@ -201,16 +244,19 @@ create/update/delete Robinhood watchlists.
         human. Equities: `review_equity_order(...)` → on approval
         `place_equity_order(...)`. Crypto: `preview_crypto_order(...)` → on
         approval `place_crypto_order(...)`. If the human rejects, log and skip.
-7. **Readiness (dry-run only, periodic, notify-only).** Call
+8. **Readiness (dry-run only, periodic, notify-only).** Call
    `check_live_readiness` occasionally. If `ready == true`, report it to the
    human as information — it is NOT authorization to go live. A human explicitly
    sets `MODE=live`; you never flip it.
-8. **Reflection (optional).** `generate_reflection` for a human-readable audit
-   note; it never changes weights.
-9. **Report.** Summarize this cycle: halt state, how `CYCLE_UNIVERSE` was
-   built (counts by source), per-symbol decisions, any would-be/placed orders,
-   any paper positions opened/closed, and anything needing human attention.
-   Then end.
+9. **Reflection (each cycle end).** Call `generate_reflection` so trade
+   outcomes **and** research memory (forums/failures/lessons) get a short
+   audit rationale. It never changes weights by itself — weights only move
+   via closed-trade `record_outcome` / `close_paper_position`.
+10. **Report.** Summarize this cycle: halt state, how `CYCLE_UNIVERSE` was
+   built (counts by source), research sources skimmed + failures recorded,
+   per-symbol decisions, any would-be/placed orders, any paper positions
+   opened/closed, lessons for next cycle, and anything needing human
+   attention. Then end.
 
 ## Cadence notes
 
@@ -223,7 +269,14 @@ create/update/delete Robinhood watchlists.
   intraday tick, expect fewer, more spaced-out decisions — the safety/sizing
   logic is unchanged, but the strategy sees a slower bar-to-decision cadence.
 - Respect LLM/API rate limits: if `get_symbol_chatter` degrades (429), continue
-  with price-action + sentiment cache rather than retry-storming.
+  with price-action + sentiment cache rather than retry-storming, and
+  `record_research_event({ kind: "tool_fail", source: "get_symbol_chatter",
+  summary: "429 or degraded", symbol })`.
+- **Learning loop:** (1) signal weights adapt only from closed paper/live
+  trades; (2) research memory adapts from forum/site skims and failures;
+  (3) reflection narrates both. Closing paper positions on reverse signals
+  is what grows the track record — do not leave opens forever without an
+  exit rule.
 
 ## What you must never do
 

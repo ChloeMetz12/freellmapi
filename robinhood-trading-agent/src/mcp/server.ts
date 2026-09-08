@@ -20,6 +20,7 @@ import { tokensMatch } from "./auth.js";
 import {
   getSentimentInputSchema,
   getSymbolChatterInputSchema,
+  getCryptoHistoricalsInputSchema,
   computeDecisionInputSchema,
   checkSafetyInputSchema,
   sizeOrderInputSchema,
@@ -27,6 +28,8 @@ import {
   getPaperPositionsInputSchema,
   closePaperPositionInputSchema,
   recordOutcomeInputSchema,
+  recordResearchEventInputSchema,
+  getResearchMemoryInputSchema,
   haltInputSchema,
   resumeInputSchema,
   getStatusInputSchema,
@@ -66,10 +69,20 @@ function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "get_crypto_historicals",
+    {
+      title: "Fetch crypto OHLCV bars (public market data)",
+      description: "Returns oldest-first OHLCV bars for a crypto symbol (e.g. BTC-USD, ETH) from Binance.US public klines. Use this when RobinHood_Trade has no crypto historicals tool — pass the returned bars into compute_decision. Not broker fills; quotes may differ slightly from Robinhood. Default interval=1h, limit=100 (≥21 required by compute_decision).",
+      inputSchema: getCryptoHistoricalsInputSchema.shape,
+    },
+    async (input) => jsonResult(await handlers.getCryptoHistoricals(input.symbol, input.interval, input.limit)),
+  );
+
+  server.registerTool(
     "compute_decision",
     {
       title: "Compute a BUY/SELL/HOLD trading decision",
-      description: "Runs the candlestick/indicator/sentiment/chatter strategy over the given OHLCV bars (fetch these via RobinHood_Trade's own quote/history tools first) using the current online-learned signal weights. Uses whatever get_sentiment/get_symbol_chatter results are already cached for this symbol — call those first if you want this cycle to reflect fresh reads. Returns an action, confidence, and which signals drove it. This does not place any order.",
+      description: "Runs the candlestick/indicator/sentiment/chatter strategy over the given OHLCV bars (equities: RobinHood_Trade get_equity_historicals; crypto: decision-engine get_crypto_historicals) using the current online-learned signal weights. Uses whatever get_sentiment/get_symbol_chatter results are already cached for this symbol — call those first if you want this cycle to reflect fresh reads. Returns an action, confidence, and which signals drove it. This does not place any order.",
       inputSchema: computeDecisionInputSchema.shape,
     },
     async (input) => jsonResult(handlers.computeDecision(input.symbol, input.bars)),
@@ -134,6 +147,28 @@ function buildServer(): McpServer {
       inputSchema: recordOutcomeInputSchema.shape,
     },
     async (input) => jsonResult(await handlers.recordOutcome(input)),
+  );
+
+  server.registerTool(
+    "record_research_event",
+    {
+      title: "Record a research / forum / search / failure memory event",
+      description:
+        "Persist a durable cross-cycle note from forum skims (Reddit, StockTwits, Seeking Alpha, etc.), WebSearch/WebFetch hits, theses, lessons, or search/tool failures. Later cycles should call get_research_memory first and avoid repeating dead sources. Does NOT move signal weights — closed-trade PnL via record_outcome / close_paper_position remains the only weight driver.",
+      inputSchema: recordResearchEventInputSchema.shape,
+    },
+    async (input) => jsonResult(handlers.recordResearchEvent(input)),
+  );
+
+  server.registerTool(
+    "get_research_memory",
+    {
+      title: "Read recent research memory and failure counts",
+      description:
+        "Returns recent research events plus failureCountsBySource so this cycle can skip repeatedly-failing sites/tools and reuse prior theses/lessons. Call once near cycle start after halt check.",
+      inputSchema: getResearchMemoryInputSchema.shape,
+    },
+    async (input) => jsonResult(handlers.getResearchMemory(input.limit)),
   );
 
   server.registerTool(

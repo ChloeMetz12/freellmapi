@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { SIGNAL_KEYS } from "../strategy/types.js";
 import { assetClassSchema, marketTrendSchema, ohlcvBarSchema } from "./marketdata.js";
+import { CRYPTO_HISTORICAL_INTERVALS } from "../marketdata/cryptoHistoricals.js";
+import { RESEARCH_EVENT_KINDS } from "../research/researchMemoryStore.js";
 
 export const getSentimentInputSchema = z.object({
   marketTrend: marketTrendSchema,
@@ -8,6 +10,13 @@ export const getSentimentInputSchema = z.object({
 
 export const getSymbolChatterInputSchema = z.object({
   symbol: z.string().min(1),
+});
+
+/** Public-market crypto OHLCV (Binance) — fills the RobinHood_Trade historicals gap. */
+export const getCryptoHistoricalsInputSchema = z.object({
+  symbol: z.string().min(1),
+  interval: z.enum(CRYPTO_HISTORICAL_INTERVALS).default("1h"),
+  limit: z.number().int().min(21).max(1000).default(100),
 });
 
 export const computeDecisionInputSchema = z.object({
@@ -79,6 +88,19 @@ export const recordOutcomeInputSchema = z.object({
 
 export const haltInputSchema = z.object({
   reason: z.string().min(1),
+});
+
+export const recordResearchEventInputSchema = z.object({
+  kind: z.enum(RESEARCH_EVENT_KINDS),
+  source: z.string().min(1).max(80),
+  summary: z.string().min(1).max(2000),
+  symbol: z.string().min(1).max(32).optional(),
+  url: z.string().url().optional(),
+  tags: z.array(z.string().min(1).max(40)).max(12).optional(),
+});
+
+export const getResearchMemoryInputSchema = z.object({
+  limit: z.number().int().min(1).max(100).default(30),
 });
 
 export const resumeInputSchema = z.object({});

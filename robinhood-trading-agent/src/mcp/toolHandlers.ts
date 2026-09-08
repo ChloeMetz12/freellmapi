@@ -4,6 +4,7 @@ import { AuditLog } from "../logging/auditLog.js";
 import { WeightStore } from "../learning/weightStore.js";
 import { TradeHistoryStore } from "../learning/tradeHistoryStore.js";
 import { PaperPositionStore } from "../execution/paperPositionStore.js";
+import { ResearchMemoryStore } from "../research/researchMemoryStore.js";
 import { applyLearningUpdate } from "../learning/update.js";
 import { generateReflection } from "../learning/reflection.js";
 import { evaluateLiveReadiness } from "../learning/liveReadiness.js";
@@ -31,6 +32,7 @@ export class ToolHandlers {
   private readonly chatterCache: ChatterCache;
   private readonly tradeHistory: TradeHistoryStore;
   private readonly paperPositions: PaperPositionStore;
+  private readonly researchMemory: ResearchMemoryStore;
   private readonly auditLog: AuditLog;
 
   constructor(private readonly env: Env) {
@@ -40,6 +42,7 @@ export class ToolHandlers {
     this.chatterCache = new ChatterCache(env.STATE_DIR);
     this.tradeHistory = new TradeHistoryStore(env.STATE_DIR);
     this.paperPositions = new PaperPositionStore(env.STATE_DIR);
+    this.researchMemory = new ResearchMemoryStore(env.STATE_DIR);
     this.auditLog = new AuditLog(env.AUDIT_LOG_DIR);
   }
 
@@ -300,12 +303,34 @@ export class ToolHandlers {
     return evaluateLiveReadiness(trades);
   }
 
+  /**
+   * Persist a forum/site skim, search hit, thesis, lesson, or tool/search
+   * failure so later cycles (and generate_reflection) can compound on it.
+   * Does not move signal weights — closed-trade PnL remains the only
+   * weight driver.
+   */
+  recordResearchEvent(input: { kind: import("../research/researchMemoryStore.js").ResearchEventKind; source: string; summary: string; symbol?: string; url?: string; tags?: string[] }) {
+    const event = this.researchMemory.append(input);
+    this.auditLog.record({ type: "research", ...event });
+    return { recorded: true, event, failureCountsBySource: this.researchMemory.failureCountsBySource() };
+  }
+
+  getResearchMemory(limit = 30) {
+    return {
+      events: this.researchMemory.recent(limit),
+      recentFailures: this.researchMemory.recentFailures(Math.min(limit, 20)),
+      failureCountsBySource: this.researchMemory.failureCountsBySource(),
+    };
+  }
+
   async generateReflection() {
     const recent = this.tradeHistory.recent(10);
+    const research = this.researchMemory.recent(15);
     const rationale = await generateReflection(
       this.env,
       recent.map((e) => e.trade),
       recent.flatMap((e) => e.adjustments),
+      research,
     );
     if (rationale) this.auditLog.record({ type: "learning_update", reflection: rationale });
     return { rationale };
