@@ -3,6 +3,7 @@ import { RISK_LIMITS } from "../config/riskLimits.js";
 import { AuditLog } from "../logging/auditLog.js";
 import { WeightStore } from "../learning/weightStore.js";
 import { TradeHistoryStore } from "../learning/tradeHistoryStore.js";
+import { PaperPositionStore } from "../execution/paperPositionStore.js";
 import { applyLearningUpdate } from "../learning/update.js";
 import { generateReflection } from "../learning/reflection.js";
 import { evaluateLiveReadiness } from "../learning/liveReadiness.js";
@@ -28,6 +29,7 @@ export class ToolHandlers {
   private readonly sentimentCache: SentimentCache;
   private readonly chatterCache: ChatterCache;
   private readonly tradeHistory: TradeHistoryStore;
+  private readonly paperPositions: PaperPositionStore;
   private readonly auditLog: AuditLog;
 
   constructor(private readonly env: Env) {
@@ -36,6 +38,7 @@ export class ToolHandlers {
     this.sentimentCache = new SentimentCache(env.STATE_DIR);
     this.chatterCache = new ChatterCache(env.STATE_DIR);
     this.tradeHistory = new TradeHistoryStore(env.STATE_DIR);
+    this.paperPositions = new PaperPositionStore(env.STATE_DIR);
     this.auditLog = new AuditLog(env.AUDIT_LOG_DIR);
   }
 
@@ -123,6 +126,73 @@ export class ToolHandlers {
     // produced it.
     this.auditLog.record({ type: "order", symbol: input.symbol, action: input.action, score: input.score, confidence: input.confidence, ...result });
     return result;
+  }
+
+  /**
+   * Dry-run's substitute for "a real order was placed and later closed" —
+   * see PaperPositionStore's docstring for why dry-run mode needs this at
+   * all. Refuses to open a second position for a symbol that already has
+   * one open rather than silently overwriting its cost basis.
+   */
+  openPaperPosition(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; entryPrice: number; quantity: number; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; openedAt?: string }) {
+    const existing = this.paperPositions.get(input.symbol);
+    if (existing) {
+      return { opened: false, reason: "a paper position is already open for this symbol — close it before opening another", position: existing };
+    }
+    const position = {
+      symbol: input.symbol,
+      assetClass: input.assetClass,
+      action: input.action,
+      entryPrice: input.entryPrice,
+      quantity: input.quantity,
+      decisionScore: input.decisionScore,
+      contributingSignals: input.contributingSignals,
+      openedAt: input.openedAt ?? new Date().toISOString(),
+    };
+    this.paperPositions.open(position);
+    this.auditLog.record({ type: "paper_position", subtype: "open", ...position });
+    return { opened: true, position };
+  }
+
+  getPaperPositions() {
+    return { positions: this.paperPositions.all() };
+  }
+
+  /**
+   * Computes the realized return from the stored paper entry against the
+   * given exit price, then delegates to recordOutcome for the exact same
+   * learning-update / PDT-counting / trade-history path a real closed
+   * order goes through — a dry-run trade should feed check_live_readiness
+   * identically to a live one, not through a separate parallel path.
+   */
+  async closePaperPosition(input: { symbol: string; exitPrice: number; currentEquity: number; closedAt?: string }) {
+    const position = this.paperPositions.get(input.symbol);
+    if (!position) {
+      return { closed: false, reason: "no open paper position for this symbol" };
+    }
+    const closedAt = input.closedAt ?? new Date().toISOString();
+    const realizedReturnPct =
+      position.action === "BUY" ? (input.exitPrice - position.entryPrice) / position.entryPrice : (position.entryPrice - input.exitPrice) / position.entryPrice;
+    // A round trip opened and closed on the same calendar day (by the
+    // trade's own open/close timestamps, not "today") is what PDT counts.
+    const isDayTrade = closedAt.slice(0, 10) === position.openedAt.slice(0, 10);
+
+    const outcome = await this.recordOutcome({
+      symbol: position.symbol,
+      assetClass: position.assetClass,
+      action: position.action,
+      decisionScore: position.decisionScore,
+      contributingSignals: position.contributingSignals,
+      realizedReturnPct,
+      isDayTrade,
+      currentEquity: input.currentEquity,
+      closedAt,
+    });
+
+    this.paperPositions.close(position.symbol);
+    this.auditLog.record({ type: "paper_position", subtype: "close", symbol: position.symbol, entryPrice: position.entryPrice, exitPrice: input.exitPrice, realizedReturnPct, closedAt });
+
+    return { closed: true, realizedReturnPct, position, ...outcome };
   }
 
   async recordOutcome(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; realizedReturnPct: number; isDayTrade: boolean; currentEquity: number; closedAt?: string }) {

@@ -40,6 +40,7 @@ are attached:
 - **decision-engine** (MCP) — the deterministic strategy/safety/learning
   brain. It never touches Robinhood. Tools: `get_sentiment`,
   `get_symbol_chatter`, `compute_decision`, `check_safety`, `size_order`,
+  `open_paper_position`, `get_paper_positions`, `close_paper_position`,
   `record_outcome`, `generate_reflection`, `check_live_readiness`, `halt`,
   `resume`, `get_status`.
 
@@ -92,41 +93,62 @@ below, and present proposed orders to the human.
    after, call decision-engine `get_sentiment` with a market-trend snapshot
    (broad-market %, tech %, volatility index — derive from index/ETF proxies
    via `get_equity_quotes`). It caches server-side; don't call it every symbol.
-4. **For each symbol in `[[WATCHLIST]]`:**
+4. **Dry-run only, once before the per-symbol loop:** call decision-engine
+   `get_paper_positions()` to see which watchlist symbols already have a
+   simulated position open from an earlier cycle.
+5. **For each symbol in `[[WATCHLIST]]`:**
    a. **Fetch OHLCV** (oldest-first, ≥50 bars): equities →
       `get_equity_historicals`; crypto → the crypto quotes/historical tools.
    b. **Chatter** (safe every cycle, cached): decision-engine
       `get_symbol_chatter(symbol)` before the decision so it's incorporated.
-   c. **Decision:** decision-engine `compute_decision(symbol, bars)`. If
-      `action == "HOLD"`, log and continue to the next symbol.
+   c. **Decision:** decision-engine `compute_decision(symbol, bars)`.
    d. **Safety:** decision-engine `check_safety(currentEquity, marginMaintenanceUtilization)`.
       If `halted`, STOP all trading for the cycle (report reason).
-   e. **Size:** decision-engine `size_order({ symbol, currentPrice, action,
+   e. **Manage an already-open position for this symbol, mode-gated:**
+      - **dry-run:** if step 4's `get_paper_positions()` showed an open
+        position for this symbol, and this cycle's decision reverses it
+        (the position's `action` is `BUY` and this decision's `action` is
+        `SELL`, or vice versa) — or this is the last bar of the equities
+        session for an equity position — call decision-engine
+        `close_paper_position({ symbol, exitPrice: currentPrice,
+        currentEquity, closedAt: now })`. This computes the realized return
+        and runs the online-learning update itself; just log the result. Do
+        **not** also open a new entry for this symbol in the same cycle —
+        continue to the next symbol.
+      - **live:** detect a previously-opened *real* position that has since
+        closed (via `get_equity_orders` / `get_equity_positions` etc.) and
+        call decision-engine `record_outcome({ symbol, assetClass, action,
+        decisionScore, contributingSignals, realizedReturnPct, isDayTrade,
+        currentEquity, closedAt })` with its actual realized return. Use the
+        trade's real close time for `closedAt`.
+   f. If `action == "HOLD"` (and no position was just closed in step e), log
+      and continue to the next symbol.
+   g. **Size:** decision-engine `size_order({ symbol, currentPrice, action,
       confidence, score, contributingSignals, cash, maxMarginBuyingPower,
       bars })`. If `plan == null`, log and continue.
-   f. **Execute — mode-gated:**
+   h. **Execute — mode-gated:**
       - **dry-run / `executeOrder == false`:** log the would-be order
         (`plan.side`, `plan.notionalUsd`, `plan.estimatedShares`,
-        `plan.rationale`). Place nothing.
+        `plan.rationale`). Place nothing. Then, only if this symbol doesn't
+        already have an open paper position (step e would have closed it,
+        or it's still legitimately open — don't stack a second one), call
+        decision-engine `open_paper_position({ symbol, assetClass, action,
+        entryPrice: currentPrice, quantity: plan.estimatedShares,
+        decisionScore: score, contributingSignals })` so a later cycle's
+        step e has something to detect and close.
       - **live / `executeOrder == true`:** present the proposed order to the
         human. Equities: `review_equity_order(...)` → on approval
         `place_equity_order(...)`. Crypto: `preview_crypto_order(...)` → on
         approval `place_crypto_order(...)`. If the human rejects, log and skip.
-   g. **Record outcome (when a prior position closes).** Once a trade opened in
-      an earlier cycle has closed (detect via `get_equity_orders` /
-      `get_equity_positions` etc.), call decision-engine `record_outcome({
-      symbol, assetClass, action, decisionScore, contributingSignals,
-      realizedReturnPct, isDayTrade, currentEquity, closedAt })` so the online
-      learning + PDT counter update. Use the trade's real close time for
-      `closedAt`.
-5. **Readiness (dry-run only, periodic, notify-only).** Call
+6. **Readiness (dry-run only, periodic, notify-only).** Call
    `check_live_readiness` occasionally. If `ready == true`, report it to the
    human as information — it is NOT authorization to go live. A human explicitly
    sets `MODE=live`; you never flip it.
-6. **Reflection (optional).** `generate_reflection` for a human-readable audit
+7. **Reflection (optional).** `generate_reflection` for a human-readable audit
    note; it never changes weights.
-7. **Report.** Summarize this cycle: halt state, per-symbol decisions, any
-   would-be/placed orders, and anything needing human attention. Then end.
+8. **Report.** Summarize this cycle: halt state, per-symbol decisions, any
+   would-be/placed orders, any paper positions opened/closed, and anything
+   needing human attention. Then end.
 
 ## Cadence notes
 

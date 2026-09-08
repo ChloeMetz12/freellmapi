@@ -17,7 +17,22 @@ import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
 import { tokensMatch } from "./auth.js";
-import { getSentimentInputSchema, getSymbolChatterInputSchema, computeDecisionInputSchema, checkSafetyInputSchema, sizeOrderInputSchema, recordOutcomeInputSchema, haltInputSchema, resumeInputSchema, getStatusInputSchema, generateReflectionInputSchema, checkLiveReadinessInputSchema } from "../schema/tools.js";
+import {
+  getSentimentInputSchema,
+  getSymbolChatterInputSchema,
+  computeDecisionInputSchema,
+  checkSafetyInputSchema,
+  sizeOrderInputSchema,
+  openPaperPositionInputSchema,
+  getPaperPositionsInputSchema,
+  closePaperPositionInputSchema,
+  recordOutcomeInputSchema,
+  haltInputSchema,
+  resumeInputSchema,
+  getStatusInputSchema,
+  generateReflectionInputSchema,
+  checkLiveReadinessInputSchema,
+} from "../schema/tools.js";
 
 const env = loadEnv();
 applyEnvRiskOverrides(env);
@@ -78,6 +93,37 @@ function buildServer(): McpServer {
       inputSchema: sizeOrderInputSchema.shape,
     },
     async (input) => jsonResult(handlers.sizeOrder(input)),
+  );
+
+  server.registerTool(
+    "open_paper_position",
+    {
+      title: "Open a simulated position for dry-run tracking",
+      description:
+        "Dry-run only: since dry-run never places a real order, nothing ever appears in the broker account for a later cycle to detect as closed. Call this right after size_order returns a non-null plan in dry-run mode to record a simulated entry, so a later close_paper_position call has something to compute a realized return against. Refuses (opened=false) if a paper position is already open for this symbol.",
+      inputSchema: openPaperPositionInputSchema.shape,
+    },
+    async (input) => jsonResult(handlers.openPaperPosition(input)),
+  );
+
+  server.registerTool(
+    "get_paper_positions",
+    {
+      title: "List currently open dry-run paper positions",
+      description: "Returns every symbol with a simulated position still open from a prior open_paper_position call — check this each cycle to decide whether an open position's exit condition (opposite signal, stop-loss/take-profit, end of session, etc.) has been met.",
+      inputSchema: getPaperPositionsInputSchema.shape,
+    },
+    async () => jsonResult(handlers.getPaperPositions()),
+  );
+
+  server.registerTool(
+    "close_paper_position",
+    {
+      title: "Close a simulated position and record its outcome",
+      description: "Dry-run only: computes the realized return from the stored paper entry price against the given exit price, then runs the same online-learning weight update, PDT-day-trade counting, and trade-history append that a real record_outcome call would — this is what lets check_live_readiness accumulate a track record during dry-run. Returns closed=false if no paper position is open for the symbol.",
+      inputSchema: closePaperPositionInputSchema.shape,
+    },
+    async (input) => jsonResult(await handlers.closePaperPosition(input)),
   );
 
   server.registerTool(
