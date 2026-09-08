@@ -9,5 +9,9 @@ dist/
 # Structured audit log (decisions, orders, learning updates, halt/resume)
 runs/
 
+# Per-cycle end-of-run PnL chart written by the orchestration session —
+# regenerated every cycle, never a durable repo artifact.
+paper-pnl-cycle.svg
+
 .env
 .env.local
