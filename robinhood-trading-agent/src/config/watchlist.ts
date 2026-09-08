@@ -14,5 +14,8 @@ export type AssetClass = "equity" | "crypto";
 export const MARKET_TREND_PROXIES = {
   broadMarket: "SPY",
   tech: "QQQ",
+  semiconductors: "SMH",
+  naturalResources: "XLB",
+  energy: "XLE",
   volatility: "VIX",
 } as const;
