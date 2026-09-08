@@ -103,6 +103,20 @@ export const getResearchMemoryInputSchema = z.object({
   limit: z.number().int().min(1).max(100).default(30),
 });
 
+export const getPaperPnlChartInputSchema = z.object({
+  /** Current mark prices for open paper symbols — required for unrealized %. */
+  marks: z
+    .array(
+      z.object({
+        symbol: z.string().min(1),
+        price: z.number().finite().positive(),
+      }),
+    )
+    .default([]),
+  /** How many recent closed trades (realized) to include. */
+  closedLimit: z.number().int().min(1).max(60).default(20),
+});
+
 export const resumeInputSchema = z.object({});
 export const getStatusInputSchema = z.object({});
 export const generateReflectionInputSchema = z.object({});

@@ -30,6 +30,7 @@ import {
   recordOutcomeInputSchema,
   recordResearchEventInputSchema,
   getResearchMemoryInputSchema,
+  getPaperPnlChartInputSchema,
   haltInputSchema,
   resumeInputSchema,
   getStatusInputSchema,
@@ -169,6 +170,17 @@ function buildServer(): McpServer {
       inputSchema: getResearchMemoryInputSchema.shape,
     },
     async (input) => jsonResult(handlers.getResearchMemory(input.limit)),
+  );
+
+  server.registerTool(
+    "get_paper_pnl_chart",
+    {
+      title: "Paper PnL chart (open unrealized + closed realized)",
+      description:
+        "End-of-cycle chart and table: open paper positions with unrealized return % (pass current mark prices) and recent closed trades with realized return %. Returns chartSvg (write to a .svg file and display), markdownTable, and totals. Call after the per-symbol loop with fresh quotes for every open paper symbol.",
+      inputSchema: getPaperPnlChartInputSchema.shape,
+    },
+    async (input) => jsonResult(handlers.getPaperPnlChart(input)),
   );
 
   server.registerTool(

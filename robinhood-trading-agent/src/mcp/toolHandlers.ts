@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Env } from "../config/env.js";
 import { RISK_LIMITS } from "../config/riskLimits.js";
 import { AuditLog } from "../logging/auditLog.js";
@@ -5,6 +7,7 @@ import { WeightStore } from "../learning/weightStore.js";
 import { TradeHistoryStore } from "../learning/tradeHistoryStore.js";
 import { PaperPositionStore } from "../execution/paperPositionStore.js";
 import { ResearchMemoryStore } from "../research/researchMemoryStore.js";
+import { buildPaperPnlSnapshot } from "../reporting/paperPnlChart.js";
 import { applyLearningUpdate } from "../learning/update.js";
 import { generateReflection } from "../learning/reflection.js";
 import { evaluateLiveReadiness } from "../learning/liveReadiness.js";
@@ -321,6 +324,38 @@ export class ToolHandlers {
       recentFailures: this.researchMemory.recentFailures(Math.min(limit, 20)),
       failureCountsBySource: this.researchMemory.failureCountsBySource(),
     };
+  }
+
+  /**
+   * Cycle-end paper PnL chart: open positions with unrealized % (needs mark
+   * prices from the orchestrator) plus recent closed trades with realized %.
+   * Also writes chartSvg under AUDIT_LOG_DIR/charts for persistence.
+   */
+  getPaperPnlChart(input: { marks: Array<{ symbol: string; price: number }>; closedLimit?: number }) {
+    const snapshot = buildPaperPnlSnapshot({
+      positions: this.paperPositions.all(),
+      recentClosed: this.tradeHistory.all().map((e) => e.trade),
+      marks: input.marks,
+      closedLimit: input.closedLimit ?? 20,
+    });
+
+    try {
+      const chartsDir = join(this.env.AUDIT_LOG_DIR, "charts");
+      mkdirSync(chartsDir, { recursive: true });
+      const stamp = snapshot.generatedAt.replace(/[:.]/g, "-");
+      const filePath = join(chartsDir, `paper-pnl-${stamp}.svg`);
+      writeFileSync(filePath, snapshot.chartSvg, "utf-8");
+      this.auditLog.record({
+        type: "research",
+        kind: "lesson",
+        source: "paper_pnl_chart",
+        summary: `chart written open=${snapshot.totals.openCount} closed=${snapshot.totals.closedCount}`,
+        chartPath: filePath,
+      });
+      return { ...snapshot, chartPath: filePath };
+    } catch {
+      return { ...snapshot, chartPath: null };
+    }
   }
 
   async generateReflection() {

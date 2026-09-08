@@ -43,8 +43,8 @@ are attached:
   `get_symbol_chatter`, `get_crypto_historicals`, `compute_decision`,
   `check_safety`, `size_order`, `open_paper_position`, `get_paper_positions`,
   `close_paper_position`, `record_outcome`, `record_research_event`,
-  `get_research_memory`, `generate_reflection`, `check_live_readiness`,
-  `halt`, `resume`, `get_status`.
+  `get_research_memory`, `get_paper_pnl_chart`, `generate_reflection`,
+  `check_live_readiness`, `halt`, `resume`, `get_status`.
 
 You are the glue. You never invent trade decisions yourself — the
 decision-engine computes them; you fetch data, relay it, enforce the gates
@@ -252,11 +252,23 @@ Built-in decision-engine calls still required each cycle:
    outcomes **and** research memory (forums/failures/lessons) get a short
    audit rationale. It never changes weights by itself — weights only move
    via closed-trade `record_outcome` / `close_paper_position`.
-10. **Report.** Summarize this cycle: halt state, how `CYCLE_UNIVERSE` was
+10. **PnL chart (required each cycle end).** Quote every currently open
+   paper symbol (`get_equity_quotes` / `get_crypto_quotes`), then call
+   decision-engine `get_paper_pnl_chart({ marks: [{ symbol, price }, ...],
+   closedLimit: 20 })`.
+   - Include the returned `markdownTable` verbatim in your final report.
+   - Write `chartSvg` to a file such as `paper-pnl-cycle.svg` in the
+     workspace (or use `chartPath` if returned) and **display that chart
+     in the session output** so the human sees open vs closed bars with
+     gain/loss %.
+   - Call out totals: open count, closed count, avg unrealized %, avg
+     realized %, total unrealized $ PnL. Open = unrealized; closed =
+     realized.
+11. **Report.** Summarize this cycle: halt state, how `CYCLE_UNIVERSE` was
    built (counts by source), research sources skimmed + failures recorded,
    per-symbol decisions, any would-be/placed orders, any paper positions
-   opened/closed, lessons for next cycle, and anything needing human
-   attention. Then end.
+   opened/closed, the PnL chart + table, lessons for next cycle, and
+   anything needing human attention. Then end.
 
 ## Cadence notes
 
