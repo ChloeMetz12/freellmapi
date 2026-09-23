@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:20-bookworm-slim
+# Node 24 tracks fewer OS/npm CVEs than node:20-bookworm-slim while staying
+# inside engines.node (<25). Rebuilds still pick up Debian security updates
+# via the runtime apt upgrade below.
+ARG NODE_IMAGE=node:24-bookworm-slim
 
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
@@ -35,6 +38,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV FREELLMAPI_INSTALL_METHOD=docker
+
+# Apply Debian security updates shipped after the base image was published
+# (glibc/gnutls/pcre2 and friends). Keep build tools out of the runtime image.
+# Also drop the Node image's bundled npm/yarn — the app only needs `node`, and
+# those CLIs currently ship vulnerable transitive copies of tar / ip-address /
+# brace-expansion that Scout flags as fixable highs.
+USER root
+RUN apt-get update \
+  && apt-get upgrade -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+  && rm -rf /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg 2>/dev/null || true
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules

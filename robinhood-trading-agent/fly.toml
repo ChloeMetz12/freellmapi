@@ -1,0 +1,42 @@
+# Fly.io always-on host for the decision-engine MCP server.
+# Companion to docker-compose.yml / .env.production.example.
+
+app = "metza12-rht-mcp"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  MODE = "dry-run"
+  MCP_HTTP_PORT = "8787"
+  # Single Fly volume mounted at /app/data (Fly can't co-locate two volumes
+  # on one machine across zones reliably).
+  STATE_DIR = "/app/data/state"
+  AUDIT_LOG_DIR = "/app/data/runs"
+  DAILY_LOSS_HALT_PCT = "0.10"
+  MARGIN_UTILIZATION_CAP = "0.8"
+  MARGIN_ENABLED = "true"
+  PDT_EQUITY_THRESHOLD_USD = "25000"
+  SENTIMENT_MODEL = "openai/gpt-oss-20b"
+  # Direct OpenAI-compatible gateway on Groq (FreeLLMAPI stays Mac-local).
+  # API key is a Fly secret: LLM_GATEWAY_API_KEY (gsk_…).
+  LLM_GATEWAY_URL = "https://api.groq.com/openai/v1"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+
+[[mounts]]
+  source = "rht_data"
+  destination = "/app/data"

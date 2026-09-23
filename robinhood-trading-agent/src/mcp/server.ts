@@ -10,9 +10,12 @@
  * the calling Claude session runs remotely and needs a stable URL to hit
  * on every cron-triggered firing.
  */
+import { randomUUID } from "node:crypto";
+import type { Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "./toolHandlers.js";
@@ -246,19 +249,53 @@ function requireAuth(req: import("express").Request, res: import("express").Resp
   next();
 }
 
+// Cursor (and other Streamable HTTP clients) open a GET SSE stream after
+// initialize. Stateless mode (sessionIdGenerator: undefined) returns no
+// Mcp-Session-Id and has no GET handler, so the client sees repeated 404s
+// and tombstones the connection. Keep one shared ToolHandlers instance for
+// durable state; give each MCP session its own server+transport pair.
+const transports: Record<string, StreamableHTTPServerTransport> = {};
+
 const app = createMcpExpressApp({ host: "0.0.0.0", allowedHosts: undefined });
 app.use(requireAuth);
 
-app.post("/mcp", async (req, res) => {
-  const server = buildServer();
+app.post("/mcp", async (req: Request, res: Response) => {
   try {
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-    await server.connect(transport);
+    const sessionId = req.header("mcp-session-id") ?? undefined;
+    let transport: StreamableHTTPServerTransport;
+
+    if (sessionId && transports[sessionId]) {
+      transport = transports[sessionId];
+    } else if (!sessionId && isInitializeRequest(req.body)) {
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          transports[id] = transport;
+        },
+      });
+      transport.onclose = () => {
+        const id = transport.sessionId;
+        if (id && transports[id]) delete transports[id];
+      };
+      const server = buildServer();
+      await server.connect(transport);
+      await transport.handleRequest(req, res, req.body);
+      return;
+    } else {
+      res.status(sessionId ? 404 : 400).json({
+        jsonrpc: "2.0",
+        error: {
+          code: -32000,
+          message: sessionId
+            ? "Session not found"
+            : "Bad Request: No valid session ID provided",
+        },
+        id: null,
+      });
+      return;
+    }
+
     await transport.handleRequest(req, res, req.body);
-    res.on("close", () => {
-      transport.close();
-      server.close();
-    });
   } catch (err) {
     console.error("Error handling MCP request:", err);
     if (!res.headersSent) {
@@ -266,6 +303,18 @@ app.post("/mcp", async (req, res) => {
     }
   }
 });
+
+async function handleSessionRequest(req: Request, res: Response) {
+  const sessionId = req.header("mcp-session-id") ?? undefined;
+  if (!sessionId || !transports[sessionId]) {
+    res.status(400).send("Invalid or missing session ID");
+    return;
+  }
+  await transports[sessionId].handleRequest(req, res);
+}
+
+app.get("/mcp", handleSessionRequest);
+app.delete("/mcp", handleSessionRequest);
 
 app.listen(env.MCP_HTTP_PORT, () => {
   console.log(`robinhood-trading-agent decision-engine MCP server listening on :${env.MCP_HTTP_PORT} (mode=${env.MODE})`);

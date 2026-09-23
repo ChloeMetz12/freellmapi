@@ -11,3 +11,6 @@ runs/
 
 .env
 .env.local
+
+# Graphify local knowledge graph
+graphify-out/

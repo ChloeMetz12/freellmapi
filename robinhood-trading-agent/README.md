@@ -382,6 +382,11 @@ Macro/market-wide sentiment (`get_sentiment`, `src/sentiment/`):
 - **CoinGecko** (`COINGECKO_API_KEY`, optional) — crypto market data (BTC
   dominance, trending coins); no key required for the free-tier endpoints
   used here, synthesized into one summary "headline" per cycle.
+- **Shadow Broker / WORLDVIEW** (`SHADOWBROKER_ENABLED`, default true;
+  `SHADOWBROKER_BASE_URL`, default `http://127.0.0.1:8000`) — local
+  geo/OSINT via `/ai/news/summary` on the backend (not the UI on `:3000`).
+  Adds a risk snapshot plus top scored world stories into the same
+  sentiment prompt; fails soft when the stack is down.
 - **X macro news** (`X_BEARER_TOKEN`, paid) — headlines from a curated set
   of wire-service/official accounts (`src/sentiment/providers/xMacroNews.ts`),
   not an open keyword search, specifically to avoid pulling in the kind of

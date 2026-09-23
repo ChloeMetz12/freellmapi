@@ -7,6 +7,7 @@ import { NewsApiWorldNews } from "./providers/newsApiWorldNews.js";
 import { CoinGeckoMarket } from "./providers/coinGeckoMarket.js";
 import { BenzingaNews } from "./providers/benzingaNews.js";
 import { XMacroNews } from "./providers/xMacroNews.js";
+import { ShadowBrokerWorldNews } from "./providers/shadowBrokerWorldNews.js";
 import { NEUTRAL_SENTIMENT, type MarketTrendSnapshot, type NewsHeadline, type SentimentResult } from "./types.js";
 
 const SYSTEM_PROMPT = `You analyze market-relevant news and macro/political context for sentiment
@@ -76,7 +77,19 @@ export async function safelyFetch(name: string, fn: () => Promise<NewsHeadline[]
 }
 
 export interface SentimentEngineDeps {
-  env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GATEWAY_API_KEY" | "SENTIMENT_MODEL" | "FINNHUB_API_KEY" | "NEWSAPI_KEY" | "BENZINGA_API_KEY" | "X_BEARER_TOKEN" | "COINGECKO_API_KEY">;
+  env: Pick<
+    Env,
+    | "LLM_GATEWAY_URL"
+    | "LLM_GATEWAY_API_KEY"
+    | "SENTIMENT_MODEL"
+    | "FINNHUB_API_KEY"
+    | "NEWSAPI_KEY"
+    | "BENZINGA_API_KEY"
+    | "X_BEARER_TOKEN"
+    | "COINGECKO_API_KEY"
+    | "SHADOWBROKER_ENABLED"
+    | "SHADOWBROKER_BASE_URL"
+  >;
 }
 
 export async function computeSentiment(marketTrend: MarketTrendSnapshot, { env }: SentimentEngineDeps): Promise<SentimentResult> {
@@ -87,6 +100,10 @@ export async function computeSentiment(marketTrend: MarketTrendSnapshot, { env }
     env.X_BEARER_TOKEN ? () => safelyFetch("x-macro", () => new XMacroNews(env.X_BEARER_TOKEN!).fetchHeadlines()) : null,
     // CoinGecko needs no key for its free-tier market endpoints used here.
     () => safelyFetch("coingecko", () => new CoinGeckoMarket(env.COINGECKO_API_KEY).fetchHeadlines()),
+    // Local WORLDVIEW / Shadow Broker OSINT — no key; skip entirely when disabled.
+    env.SHADOWBROKER_ENABLED
+      ? () => safelyFetch("shadowbroker", () => new ShadowBrokerWorldNews(env.SHADOWBROKER_BASE_URL).fetchHeadlines())
+      : null,
   ].filter((p): p is () => Promise<NewsHeadline[]> => p !== null);
 
   if (providers.length === 0) {

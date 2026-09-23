@@ -32,6 +32,15 @@ const envSchema = z.object({
   // are too low for search at trading cadence.
   X_BEARER_TOKEN: z.string().optional(),
 
+  // Local Shadow Broker / WORLDVIEW backend (API on :8000, not the UI on :3000).
+  // When enabled, get_sentiment pulls /ai/news/summary for fresh geo/OSINT context.
+  // Use host.docker.internal:8000 if the decision-engine runs in Docker on Mac.
+  SHADOWBROKER_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+  SHADOWBROKER_BASE_URL: z.string().url().default("http://127.0.0.1:8000"),
+
   LLM_GATEWAY_URL: z.string().url().default("http://localhost:3000/v1"),
   LLM_GATEWAY_API_KEY: z.string().optional(),
   SENTIMENT_MODEL: z.string().default("gpt-4o-mini"),

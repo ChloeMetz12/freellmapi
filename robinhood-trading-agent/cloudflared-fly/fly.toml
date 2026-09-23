@@ -1,0 +1,17 @@
+app = "metza12-rht-tunnel"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MCP_INTERNAL_HOST = "metza12-rht-mcp.internal"
+
+# Outbound-only tunnel connector — no public HTTP service.
+[deploy]
+  strategy = "immediate"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "robinhood-trading-agent": {
+      "type": "http",
+      "url": "https://metza12-rht-mcp.fly.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
+      }
+    }
+  }
+}
