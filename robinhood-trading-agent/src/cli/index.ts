@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { loadEnv } from "../config/env.js";
 import { applyEnvRiskOverrides } from "../config/riskLimits.js";
 import { ToolHandlers } from "../mcp/toolHandlers.js";
+import { exportResearchLessons } from "../research/exportResearchLessons.js";
 
 const env = loadEnv();
 applyEnvRiskOverrides(env);
@@ -30,6 +31,27 @@ program
   .description("Clear a manual or auto-triggered halt.")
   .action(() => {
     console.log(JSON.stringify(handlers.resume(), null, 2));
+  });
+
+program
+  .command("export-research-lessons")
+  .description(
+    "One-way curated export of sanitized research `lesson` events into a vault folder. " +
+      "Does not run from the MCP server — opt-in local/CLI only. Skips forum skims, theses, and failures.",
+  )
+  .requiredOption(
+    "--out <dir>",
+    "Destination directory (e.g. path to Obsidian Agents/Trading Research). Never set this on the production MCP host.",
+  )
+  .option("--state-dir <dir>", "Override STATE_DIR for the research-memory.json read", env.STATE_DIR)
+  .option("--dry-run", "Report what would be appended without writing", false)
+  .action((opts: { out: string; stateDir: string; dryRun?: boolean }) => {
+    const result = exportResearchLessons({
+      stateDir: opts.stateDir,
+      outDir: opts.out,
+      dryRun: Boolean(opts.dryRun),
+    });
+    console.log(JSON.stringify(result, null, 2));
   });
 
 program.parse();

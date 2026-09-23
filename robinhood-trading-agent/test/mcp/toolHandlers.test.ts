@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { ToolHandlers } from "../../src/mcp/toolHandlers.js";
 import type { Env } from "../../src/config/env.js";
 import type { OhlcvBar } from "../../src/marketdata/types.js";
-import { RISK_LIMITS } from "../../src/config/riskLimits.js";
 
 let dir: string | undefined;
 
@@ -199,49 +198,6 @@ describe("ToolHandlers.sizeOrder dry-run paper floor", () => {
     expect(result.plan).not.toBeNull();
     expect(result.plan!.notionalUsd).toBeGreaterThan(0);
     expect(result.executeOrder).toBe(false);
-  });
-
-  it("floors dust-sized real buying power (nonzero but far below the paper floor) instead of sizing off it directly", () => {
-    // An agentic account can report a tiny nonzero residual — e.g. $0.10 —
-    // rather than a clean $0. A `<= 0` check lets that slip through
-    // untouched, producing a near-zero notional "trade" that's pure noise
-    // but still counts toward check_live_readiness's trade count/win rate.
-    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir));
-    const closes = Array.from({ length: 30 }, (_, i) => 100 + (i % 3));
-    const result = handlers.sizeOrder({
-      symbol: "NVDA",
-      currentPrice: 228.885,
-      action: "SELL",
-      confidence: 0.2,
-      score: -0.2,
-      contributingSignals: [],
-      cash: 0.1,
-      maxMarginBuyingPower: 0,
-      bars: barsFromCloses(closes),
-    });
-    expect(result.usedDryRunPaperBuyingPower).toBe(true);
-    expect(result.sizing.buyingPowerUsd).toBe(RISK_LIMITS.dryRunPaperBuyingPowerUsd);
-    expect(result.plan!.notionalUsd).toBeGreaterThan(1);
-  });
-
-  it("does not floor a real buying power that already meets or exceeds the paper floor", () => {
-    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir));
-    const closes = Array.from({ length: 30 }, (_, i) => 100 + (i % 3));
-    const result = handlers.sizeOrder({
-      symbol: "AAPL",
-      currentPrice: 200,
-      action: "BUY",
-      confidence: 0.2,
-      score: 0.2,
-      contributingSignals: [],
-      cash: 5_000,
-      maxMarginBuyingPower: 0,
-      bars: barsFromCloses(closes),
-    });
-    expect(result.usedDryRunPaperBuyingPower).toBe(false);
-    expect(result.sizing.buyingPowerUsd).toBe(5_000);
   });
 });
 

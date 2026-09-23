@@ -12,6 +12,7 @@
     "test": "vitest run",
     "mcp": "tsx src/mcp/server.ts",
     "cli": "tsx src/cli/index.ts",
+    "export-research-lessons": "tsx src/cli/index.ts export-research-lessons",
     "backtest": "tsx backtest/run.ts"
   },
   "engines": {

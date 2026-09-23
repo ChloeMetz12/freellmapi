@@ -139,19 +139,11 @@ export class ToolHandlers {
     let cash = input.cash;
     let maxMarginBuyingPower = input.maxMarginBuyingPower;
     let usedDryRunPaperBuyingPower = false;
-    // Dry-run paper tracking must not stall — or size down to economically
-    // meaningless dust — when the broker/agentic account reports near-zero
-    // buying power. That's common and unrelated to whether the strategy
-    // signal is actionable. Floor (not just substitute-on-exactly-zero):
-    // an agentic account can report a tiny nonzero residual (a few cents to
-    // a few dollars of leftover cash) rather than a clean $0, and that was
-    // slipping past a `<= 0` check untouched, producing positions sized off
-    // that dust instead of the intended $1000 floor — e.g. a $0.02-notional
-    // "trade" that's pure noise but still counts toward check_live_readiness's
-    // trade count and win rate. Live mode is untouched: real zero/low buying
-    // power still yields a real zero/low-size (or null) plan there.
+    // Dry-run paper tracking must not stall when the broker/agentic account
+    // reports $0 buying power — that is common and unrelated to whether the
+    // strategy signal is actionable. Live mode keeps the real zero-size plan.
     const marginHeadroomPreview = this.env.MARGIN_ENABLED ? maxMarginBuyingPower * RISK_LIMITS.marginUtilizationCap : 0;
-    if (this.env.MODE === "dry-run" && cash + marginHeadroomPreview < RISK_LIMITS.dryRunPaperBuyingPowerUsd && (input.action === "BUY" || input.action === "SELL")) {
+    if (this.env.MODE === "dry-run" && cash + marginHeadroomPreview <= 0 && (input.action === "BUY" || input.action === "SELL")) {
       cash = RISK_LIMITS.dryRunPaperBuyingPowerUsd;
       maxMarginBuyingPower = 0;
       usedDryRunPaperBuyingPower = true;

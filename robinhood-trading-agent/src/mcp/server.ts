@@ -155,7 +155,7 @@ function buildServer(): McpServer {
     {
       title: "Record a research / forum / search / failure memory event",
       description:
-        "Persist a durable cross-cycle note from forum skims (Reddit, StockTwits, Seeking Alpha, etc.), WebSearch/WebFetch hits, theses, lessons, or search/tool failures. Later cycles should call get_research_memory first and avoid repeating dead sources. Does NOT move signal weights — closed-trade PnL via record_outcome / close_paper_position remains the only weight driver.",
+        "Persist a durable cross-cycle note from forum skims (Reddit, StockTwits, Seeking Alpha, Investors.com/IBD, etc.), WebSearch/WebFetch hits, theses, lessons, or search/tool failures. Prefer source \"investors.com\" with tags ibd / ibd-morning / ibd-evening for IBD AM/PM passes. Later cycles should call get_research_memory first and avoid repeating dead sources. Does NOT move signal weights — closed-trade PnL via record_outcome / close_paper_position remains the only weight driver.",
       inputSchema: recordResearchEventInputSchema.shape,
     },
     async (input) => jsonResult(handlers.recordResearchEvent(input)),
