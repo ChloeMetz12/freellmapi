@@ -90,14 +90,14 @@ export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GA
     // specifically here: several parallel per-symbol pipelines can all hit
     // the 429 at the same instant, and without jitter they'd all retry at
     // the same instant too, immediately re-triggering the same burst. The
-    // cap applies to the jittered total, not the pre-jitter value — a
-    // cap applied before adding jitter would let the actual sleep run up
-    // to 1.5x past it, defeating the point of capping at all.
+    // cap is applied to the pre-jitter base, scaled down by the jitter's
+    // max multiplier (1.5x) so the jittered result still tops out at
+    // MAX_RETRY_AFTER_MS — capping the post-jitter value directly would
+    // collapse every caller with a large Retry-After to the exact same
+    // delay, re-synchronizing the very burst jitter exists to break up.
     const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-    const baseDelayMs = retryAfterMs ?? BASE_DELAY_MS * 2 ** (attempt - 1);
-    const jitteredMs = baseDelayMs + Math.random() * baseDelayMs * 0.5;
-    const delayMs = retryAfterMs !== null ? Math.min(jitteredMs, MAX_RETRY_AFTER_MS) : jitteredMs;
-    await sleep(delayMs);
+    const baseDelayMs = retryAfterMs !== null ? Math.min(retryAfterMs, MAX_RETRY_AFTER_MS / 1.5) : BASE_DELAY_MS * 2 ** (attempt - 1);
+    await sleep(baseDelayMs + Math.random() * baseDelayMs * 0.5);
   }
 
   // Unreachable — the loop above always returns or throws — but keeps this

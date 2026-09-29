@@ -78,6 +78,29 @@ describe("callGatewayJson", () => {
     expect(sleepSpy.mock.calls[0][1]).toBeLessThanOrEqual(5000);
   });
 
+  it("preserves jitter variance across attempts even when Retry-After exceeds the cap", async () => {
+    // Capping the post-jitter value directly collapses every large
+    // Retry-After to exactly 5000ms for every caller — re-synchronizing
+    // the concurrent-retry burst jitter exists to break up. The cap must
+    // land on the pre-jitter base instead, so distinct calls still land
+    // on distinct delays.
+    const sleepSpy = vi.spyOn(global, "setTimeout");
+
+    for (let i = 0; i < 5; i++) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "10" } })).mockResolvedValueOnce(jsonResponse({ ok: true })),
+      );
+      const promise = callGatewayJson(BASE_ENV, "sys", "user");
+      await vi.runAllTimersAsync();
+      await promise;
+    }
+
+    const delays = sleepSpy.mock.calls.map(([, ms]) => ms as number);
+    for (const d of delays) expect(d).toBeLessThanOrEqual(5000);
+    expect(new Set(delays).size).toBeGreaterThan(1);
+  });
+
   it("drains a failed response's body before retrying, so the connection can be reused", async () => {
     const cancelSpy = vi.fn(async () => undefined);
     const failingResponse = new Response("rate limited", { status: 429 });
