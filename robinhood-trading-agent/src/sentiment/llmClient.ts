@@ -90,24 +90,33 @@ export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GA
     // specifically here: several parallel per-symbol pipelines can all hit
     // the 429 at the same instant, and without jitter they'd all retry at
     // the same instant too, immediately re-triggering the same burst.
+    // The valid delay range is [minMs, maxMs]; jitter is sampled uniformly
+    // across it rather than as a fixed extra fraction, since a fixed
+    // extra amount on top of a Retry-After near the cap would blow past
+    // the cap (e.g. Retry-After: 4 must land in [4000, 5000], not
+    // [4000, 6000]).
     const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-    let baseDelayMs: number;
+    let minMs: number;
+    let maxMs: number;
     if (retryAfterMs === null) {
-      baseDelayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
+      minMs = BASE_DELAY_MS * 2 ** (attempt - 1);
+      maxMs = minMs * 1.5;
     } else if (retryAfterMs <= MAX_RETRY_AFTER_MS) {
       // Within budget — Retry-After is the server telling us the minimum
-      // wait, so it's a floor jitter only adds to, never shortens.
-      baseDelayMs = retryAfterMs;
+      // wait, a floor jitter must not shorten. Jitter fills whatever
+      // headroom remains up to the cap instead.
+      minMs = retryAfterMs;
+      maxMs = MAX_RETRY_AFTER_MS;
     } else {
-      // Exceeds budget — scale the pre-jitter base down by the jitter's
-      // max multiplier (1.5x) so the jittered result still tops out at
-      // MAX_RETRY_AFTER_MS while keeping genuine spread. Capping the
-      // post-jitter value directly would instead collapse every caller
-      // with a large Retry-After to the exact same delay, re-synchronizing
-      // the very burst jitter exists to break up.
-      baseDelayMs = MAX_RETRY_AFTER_MS / 1.5;
+      // Exceeds budget — scale the range down by the same ratio so the
+      // result still tops out at the cap while keeping genuine spread.
+      // Capping the post-jitter value directly would instead collapse
+      // every caller with a large Retry-After to the exact same delay,
+      // re-synchronizing the very burst jitter exists to break up.
+      minMs = MAX_RETRY_AFTER_MS / 1.5;
+      maxMs = MAX_RETRY_AFTER_MS;
     }
-    await sleep(baseDelayMs + Math.random() * baseDelayMs * 0.5);
+    await sleep(minMs + Math.random() * (maxMs - minMs));
   }
 
   // Unreachable — the loop above always returns or throws — but keeps this
