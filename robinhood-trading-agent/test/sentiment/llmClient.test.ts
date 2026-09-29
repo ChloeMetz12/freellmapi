@@ -60,6 +60,38 @@ describe("callGatewayJson", () => {
     expect(sleepSpy.mock.calls[0][1]).toBeGreaterThanOrEqual(2000);
   });
 
+  it("caps the jittered Retry-After delay at 5s, not just the pre-jitter value", async () => {
+    // A naive `Math.min(retryAfterMs, cap)` applied before adding jitter
+    // lets the actual sleep run up to 1.5x past the cap (up to 7.5s here) —
+    // this asserts the cap holds on the final, post-jitter delay.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "10" } }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const sleepSpy = vi.spyOn(global, "setTimeout");
+
+    const promise = callGatewayJson(BASE_ENV, "sys", "user");
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(sleepSpy.mock.calls[0][1]).toBeLessThanOrEqual(5000);
+  });
+
+  it("drains a failed response's body before retrying, so the connection can be reused", async () => {
+    const cancelSpy = vi.fn(async () => undefined);
+    const failingResponse = new Response("rate limited", { status: 429 });
+    vi.spyOn(failingResponse, "body", "get").mockReturnValue({ cancel: cancelSpy } as unknown as ReadableStream);
+    const fetchMock = vi.fn().mockResolvedValueOnce(failingResponse).mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = callGatewayJson(BASE_ENV, "sys", "user");
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("retries transient 5xx errors the same as 429", async () => {
     const fetchMock = vi
       .fn()

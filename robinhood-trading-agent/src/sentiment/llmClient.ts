@@ -76,16 +76,28 @@ export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GA
     }
 
     lastError = new Error(`LLM gateway call failed: ${response.status} ${response.statusText}`);
+
+    // Drain the error body before retrying — an unconsumed body can pin
+    // the underlying connection open (blocking reuse) in Node's fetch
+    // implementation, which matters most exactly here, under the
+    // concurrent 429/5xx bursts this loop exists to ride out.
+    await response.body?.cancel().catch(() => {});
+
     if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) throw lastError;
 
     // Honor the gateway's own Retry-After when it sends one (common on
     // 429s); otherwise fall back to exponential backoff. Jitter matters
     // specifically here: several parallel per-symbol pipelines can all hit
     // the 429 at the same instant, and without jitter they'd all retry at
-    // the same instant too, immediately re-triggering the same burst.
+    // the same instant too, immediately re-triggering the same burst. The
+    // cap applies to the jittered total, not the pre-jitter value — a
+    // cap applied before adding jitter would let the actual sleep run up
+    // to 1.5x past it, defeating the point of capping at all.
     const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-    const backoffMs = retryAfterMs !== null ? Math.min(retryAfterMs, MAX_RETRY_AFTER_MS) : BASE_DELAY_MS * 2 ** (attempt - 1);
-    await sleep(backoffMs + Math.random() * backoffMs * 0.5);
+    const baseDelayMs = retryAfterMs ?? BASE_DELAY_MS * 2 ** (attempt - 1);
+    const jitteredMs = baseDelayMs + Math.random() * baseDelayMs * 0.5;
+    const delayMs = retryAfterMs !== null ? Math.min(jitteredMs, MAX_RETRY_AFTER_MS) : jitteredMs;
+    await sleep(delayMs);
   }
 
   // Unreachable — the loop above always returns or throws — but keeps this

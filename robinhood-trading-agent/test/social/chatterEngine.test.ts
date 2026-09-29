@@ -7,6 +7,10 @@ describe("computeSymbolChatter", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // Restored here (not just at the end of the fake-timer test below) so
+    // a failed assertion or thrown error in that test can't leave the
+    // worker on fake timers and contaminate later tests.
+    vi.useRealTimers();
   });
 
   it("degrades to neutral when no chatter is found (StockTwits returns nothing, no X token configured)", async () => {
@@ -53,6 +57,5 @@ describe("computeSymbolChatter", () => {
     await vi.runAllTimersAsync();
     const result = await promise;
     expect(result.degraded).toBe(true);
-    vi.useRealTimers();
   });
 });
