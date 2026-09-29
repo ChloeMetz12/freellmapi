@@ -89,14 +89,24 @@ export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GA
     // 429s); otherwise fall back to exponential backoff. Jitter matters
     // specifically here: several parallel per-symbol pipelines can all hit
     // the 429 at the same instant, and without jitter they'd all retry at
-    // the same instant too, immediately re-triggering the same burst. The
-    // cap is applied to the pre-jitter base, scaled down by the jitter's
-    // max multiplier (1.5x) so the jittered result still tops out at
-    // MAX_RETRY_AFTER_MS — capping the post-jitter value directly would
-    // collapse every caller with a large Retry-After to the exact same
-    // delay, re-synchronizing the very burst jitter exists to break up.
+    // the same instant too, immediately re-triggering the same burst.
     const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-    const baseDelayMs = retryAfterMs !== null ? Math.min(retryAfterMs, MAX_RETRY_AFTER_MS / 1.5) : BASE_DELAY_MS * 2 ** (attempt - 1);
+    let baseDelayMs: number;
+    if (retryAfterMs === null) {
+      baseDelayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
+    } else if (retryAfterMs <= MAX_RETRY_AFTER_MS) {
+      // Within budget — Retry-After is the server telling us the minimum
+      // wait, so it's a floor jitter only adds to, never shortens.
+      baseDelayMs = retryAfterMs;
+    } else {
+      // Exceeds budget — scale the pre-jitter base down by the jitter's
+      // max multiplier (1.5x) so the jittered result still tops out at
+      // MAX_RETRY_AFTER_MS while keeping genuine spread. Capping the
+      // post-jitter value directly would instead collapse every caller
+      // with a large Retry-After to the exact same delay, re-synchronizing
+      // the very burst jitter exists to break up.
+      baseDelayMs = MAX_RETRY_AFTER_MS / 1.5;
+    }
     await sleep(baseDelayMs + Math.random() * baseDelayMs * 0.5);
   }
 

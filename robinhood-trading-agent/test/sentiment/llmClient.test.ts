@@ -60,6 +60,26 @@ describe("callGatewayJson", () => {
     expect(sleepSpy.mock.calls[0][1]).toBeGreaterThanOrEqual(2000);
   });
 
+  it("never retries earlier than a Retry-After value that's under the cap", async () => {
+    // A prior version scaled the pre-jitter base down for every
+    // Retry-After (to keep the post-jitter result under the 5s cap), which
+    // for a value like 4s produced a scaled base of ~3.33s — retrying
+    // *before* the server's requested minimum wait when jitter landed near
+    // zero. Retry-After under the cap must be honored as a floor.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "4" } }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const sleepSpy = vi.spyOn(global, "setTimeout");
+
+    const promise = callGatewayJson(BASE_ENV, "sys", "user");
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(sleepSpy.mock.calls[0][1]).toBeGreaterThanOrEqual(4000);
+  });
+
   it("caps the jittered Retry-After delay at 5s, not just the pre-jitter value", async () => {
     // A naive `Math.min(retryAfterMs, cap)` applied before adding jitter
     // lets the actual sleep run up to 1.5x past the cap (up to 7.5s here) —
