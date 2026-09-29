@@ -12,31 +12,84 @@ import type { Env } from "../config/env.js";
  * free-form prose (see plan's "LLM prompting design": structured output,
  * not prose).
  */
-export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GATEWAY_API_KEY" | "SENTIMENT_MODEL">, systemPrompt: string, userPrompt: string): Promise<unknown> {
-  const response = await fetch(`${env.LLM_GATEWAY_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(env.LLM_GATEWAY_API_KEY ? { Authorization: `Bearer ${env.LLM_GATEWAY_API_KEY}` } : {}),
-    },
-    body: JSON.stringify({
-      model: env.SENTIMENT_MODEL,
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
 
-  if (!response.ok) {
-    throw new Error(`LLM gateway call failed: ${response.status} ${response.statusText}`);
+// get_symbol_chatter is called from several parallel per-symbol pipelines
+// within the same cycle (see docs/orchestration-prompt.md), all sharing
+// this one gateway — a burst of concurrent calls routinely draws 429s from
+// it. Without a retry here, every one of those calls degraded to neutral
+// immediately, which was silently starving the social_chatter signal of
+// real data on most cycles (observed: 80-90% of chatter calls degraded).
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 300;
+// Cap how long a single call will wait on a gateway-supplied Retry-After —
+// a saturated gateway can ask for a long cooldown, but this call is one
+// step in a multi-symbol cycle with its own time budget, not a background
+// job that can afford to sit idle for minutes.
+const MAX_RETRY_AFTER_MS = 5_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 429 (rate limit) and 5xx (transient server-side) are worth retrying — a
+// 4xx like 400/401 means this exact request is malformed or unauthorized,
+// and retrying it just burns another slot against the same rate limit
+// without ever succeeding.
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function parseRetryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const dateMs = Date.parse(header);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : null;
+}
+
+export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GATEWAY_API_KEY" | "SENTIMENT_MODEL">, systemPrompt: string, userPrompt: string): Promise<unknown> {
+  let lastError = new Error("callGatewayJson: no attempt made");
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const response = await fetch(`${env.LLM_GATEWAY_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(env.LLM_GATEWAY_API_KEY ? { Authorization: `Bearer ${env.LLM_GATEWAY_API_KEY}` } : {}),
+      },
+      body: JSON.stringify({
+        model: env.SENTIMENT_MODEL,
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (response.ok) {
+      const body = (await response.json()) as { choices: Array<{ message: { content: string } }> };
+      const content = body.choices?.[0]?.message?.content;
+      if (!content) throw new Error("LLM gateway returned no content");
+      return JSON.parse(content);
+    }
+
+    lastError = new Error(`LLM gateway call failed: ${response.status} ${response.statusText}`);
+    if (!isRetryableStatus(response.status) || attempt === MAX_ATTEMPTS) throw lastError;
+
+    // Honor the gateway's own Retry-After when it sends one (common on
+    // 429s); otherwise fall back to exponential backoff. Jitter matters
+    // specifically here: several parallel per-symbol pipelines can all hit
+    // the 429 at the same instant, and without jitter they'd all retry at
+    // the same instant too, immediately re-triggering the same burst.
+    const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+    const backoffMs = retryAfterMs !== null ? Math.min(retryAfterMs, MAX_RETRY_AFTER_MS) : BASE_DELAY_MS * 2 ** (attempt - 1);
+    await sleep(backoffMs + Math.random() * backoffMs * 0.5);
   }
 
-  const body = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-  const content = body.choices?.[0]?.message?.content;
-  if (!content) throw new Error("LLM gateway returned no content");
-
-  return JSON.parse(content);
+  // Unreachable — the loop above always returns or throws — but keeps this
+  // function's control flow explicit rather than relying on that being
+  // obvious to every future reader.
+  throw lastError;
 }

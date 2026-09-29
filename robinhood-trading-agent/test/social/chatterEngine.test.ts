@@ -36,18 +36,23 @@ describe("computeSymbolChatter", () => {
   });
 
   it("degrades to neutral when the LLM call fails, without throwing", async () => {
+    vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
         if (String(url).includes("stocktwits")) {
           return new Response(JSON.stringify({ messages: [{ body: "AAPL to the moon", created_at: new Date().toISOString(), id: 1 }] }), { status: 200 });
         }
-        // The LLM gateway call itself fails.
+        // The LLM gateway call itself fails every time (llmClient retries
+        // a 500 a few times before giving up — fake timers skip past that).
         return new Response("server error", { status: 500 });
       }),
     );
 
-    const result = await computeSymbolChatter("AAPL", { env: BASE_ENV });
+    const promise = computeSymbolChatter("AAPL", { env: BASE_ENV });
+    await vi.runAllTimersAsync();
+    const result = await promise;
     expect(result.degraded).toBe(true);
+    vi.useRealTimers();
   });
 });
