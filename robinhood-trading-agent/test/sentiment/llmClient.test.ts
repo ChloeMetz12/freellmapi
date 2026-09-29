@@ -97,6 +97,28 @@ describe("callGatewayJson", () => {
     expect(sleepSpy.mock.calls[0][1]).toBe(5000);
   });
 
+  it("scales in-range Retry-After jitter with the header itself, not the fixed cap", async () => {
+    // A small Retry-After (even 0) previously jittered across the entire
+    // remaining window up to the 5s cap, adding several seconds of
+    // latency the server never asked for. Jitter must scale with the
+    // header like the fallback backoff does.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429, headers: { "retry-after": "0" } }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const sleepSpy = vi.spyOn(global, "setTimeout");
+
+    const promise = callGatewayJson(BASE_ENV, "sys", "user");
+    await vi.runAllTimersAsync();
+    await promise;
+
+    // Well under the 5s cap — in the same ballpark as the fallback
+    // backoff's own first-attempt jitter (up to 450ms), not the old
+    // ~5000ms worst case.
+    expect(sleepSpy.mock.calls[0][1]).toBeLessThanOrEqual(500);
+  });
+
   it("caps the jittered Retry-After delay at 5s, not just the pre-jitter value", async () => {
     // A naive `Math.min(retryAfterMs, cap)` applied before adding jitter
     // lets the actual sleep run up to 1.5x past the cap (up to 7.5s here) —

@@ -103,10 +103,18 @@ export async function callGatewayJson(env: Pick<Env, "LLM_GATEWAY_URL" | "LLM_GA
       maxMs = minMs * 1.5;
     } else if (retryAfterMs <= MAX_RETRY_AFTER_MS) {
       // Within budget — Retry-After is the server telling us the minimum
-      // wait, a floor jitter must not shorten. Jitter fills whatever
-      // headroom remains up to the cap instead.
+      // wait, a floor jitter must not shorten. Jitter scales with the
+      // header itself (same ~50% as the fallback backoff below), not with
+      // the fixed cap — otherwise a small Retry-After (even 0) could still
+      // jitter all the way up to MAX_RETRY_AFTER_MS, adding several
+      // seconds of latency the server never asked for. The fallback
+      // backoff's own jitter is used as a floor on the window so a very
+      // small header still gets *some* spread to desynchronize concurrent
+      // retries, and the whole window is capped so a header near the
+      // budget still can't jitter past it.
       minMs = retryAfterMs;
-      maxMs = MAX_RETRY_AFTER_MS;
+      const fallbackJitterMs = BASE_DELAY_MS * 2 ** (attempt - 1) * 0.5;
+      maxMs = Math.min(minMs + Math.max(minMs * 0.5, fallbackJitterMs), MAX_RETRY_AFTER_MS);
     } else {
       // Exceeds budget — scale the range down by the same ratio so the
       // result still tops out at the cap while keeping genuine spread.
