@@ -300,7 +300,9 @@ Built-in decision-engine calls still required each cycle:
         decision-engine `open_paper_position({ symbol, assetClass, action,
         entryPrice: currentPrice, quantity: plan.estimatedShares,
         decisionScore: score, contributingSignals })` so a later cycle's
-        step e has something to detect and close.
+        step e has something to detect and close. With `PAPER_LONG_ONLY`
+        (the default), a `SELL` returns `opened: false` — log it as "no
+        short opened" and continue; that is expected, not an error.
       - **live / `executeOrder == true`:** present the proposed order to the
         human. Equities: `review_equity_order(...)` → on approval
         `place_equity_order(...)`. Crypto: `preview_crypto_order(...)` → on

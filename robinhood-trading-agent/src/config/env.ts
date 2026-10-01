@@ -22,6 +22,14 @@ const envSchema = z.object({
     .transform((v) => v === "true"),
   PDT_EQUITY_THRESHOLD_USD: z.coerce.number().positive().default(25_000),
 
+  // Dry-run only — live mode always uses the strategy's built-in 0.15
+  // threshold and allows shorts, so changing these never affects real orders.
+  PAPER_DECISION_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
+  PAPER_LONG_ONLY: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((v) => v === "true"),
+
   FINNHUB_API_KEY: z.string().optional(),
   NEWSAPI_KEY: z.string().optional(),
   BENZINGA_API_KEY: z.string().optional(),

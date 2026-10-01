@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSignal } from "../../src/strategy/signal.js";
+import { computeSignal, DECISION_THRESHOLD } from "../../src/strategy/signal.js";
 import { rsi } from "../../src/strategy/indicators/rsi.js";
 import { RISK_LIMITS } from "../../src/config/riskLimits.js";
 import { DEFAULT_SIGNAL_WEIGHTS } from "../../src/strategy/types.js";
@@ -76,5 +76,28 @@ describe("computeSignal's social_chatter vote", () => {
     const chatterSignal = decision.contributingSignals.find((s) => s.key === "social_chatter");
     expect(chatterSignal?.weight).toBe(DEFAULT_SIGNAL_WEIGHTS.social_chatter);
     expect(chatterSignal?.weight).toBeLessThan(DEFAULT_SIGNAL_WEIGHTS.trend);
+  });
+});
+
+describe("computeSignal's decision threshold", () => {
+  const closes = Array.from({ length: 30 }, (_, i) => 200 - i * 2);
+
+  it("defaults to DECISION_THRESHOLD", () => {
+    const decision = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS);
+    const expected = decision.score > DECISION_THRESHOLD ? "BUY" : decision.score < -DECISION_THRESHOLD ? "SELL" : "HOLD";
+    expect(decision.action).toBe(expected);
+  });
+
+  it("holds when |score| does not exceed a custom threshold, and acts when it does", () => {
+    const base = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS, 0);
+    expect(Math.abs(base.score)).toBeGreaterThan(0.01);
+    const direction = base.score > 0 ? "BUY" : "SELL";
+
+    const strict = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS, Math.abs(base.score) + 0.01);
+    expect(strict.action).toBe("HOLD");
+    expect(strict.score).toBe(base.score);
+
+    const loose = computeSignal(barsFromCloses(closes), null, null, DEFAULT_SIGNAL_WEIGHTS, Math.abs(base.score) - 0.01);
+    expect(loose.action).toBe(direction);
   });
 });

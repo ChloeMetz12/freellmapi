@@ -13,7 +13,7 @@ afterEach(() => {
   dir = undefined;
 });
 
-function makeEnv(stateDir: string): Env {
+function makeEnv(stateDir: string, overrides: Partial<Env> = {}): Env {
   return {
     MODE: "dry-run",
     MCP_HTTP_PORT: 8787,
@@ -24,8 +24,11 @@ function makeEnv(stateDir: string): Env {
     MARGIN_UTILIZATION_CAP: 0.8,
     MARGIN_ENABLED: true,
     PDT_EQUITY_THRESHOLD_USD: 25_000,
+    PAPER_DECISION_THRESHOLD: 0.15,
+    PAPER_LONG_ONLY: false,
     LLM_GATEWAY_URL: "http://localhost:3000/v1",
     SENTIMENT_MODEL: "gpt-4o-mini",
+    ...overrides,
   };
 }
 
@@ -223,5 +226,44 @@ describe("ToolHandlers.checkLiveReadiness", () => {
     expect(result.cumulativeReturnPct).toBeCloseTo(0.02, 10);
     // Nowhere near the graduation thresholds off a single trade.
     expect(result.ready).toBe(false);
+  });
+});
+
+describe("ToolHandlers paper strictness (PAPER_DECISION_THRESHOLD / PAPER_LONG_ONLY)", () => {
+  const closes = Array.from({ length: 30 }, (_, i) => 100 + i);
+
+  it("uses PAPER_DECISION_THRESHOLD in dry-run", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { PAPER_DECISION_THRESHOLD: 1 }));
+    const result = handlers.computeDecision("SPY", barsFromCloses(closes));
+    expect(result.decisionThreshold).toBe(1);
+    expect(result.action).toBe("HOLD");
+  });
+
+  it("ignores PAPER_DECISION_THRESHOLD in live mode", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", PAPER_DECISION_THRESHOLD: 1 }));
+    const result = handlers.computeDecision("SPY", barsFromCloses(closes));
+    expect(result.decisionThreshold).toBe(0.15);
+  });
+
+  it("refuses to open a paper short when PAPER_LONG_ONLY is on, but still opens longs", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { PAPER_LONG_ONLY: true }));
+
+    const short = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "SELL", entryPrice: 200, quantity: 1, decisionScore: -0.5, contributingSignals: [] });
+    expect(short.opened).toBe(false);
+    expect(short.reason).toMatch(/long-only/);
+    expect(handlers.getPaperPositions().positions).toHaveLength(0);
+
+    const long = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "BUY", entryPrice: 200, quantity: 1, decisionScore: 0.5, contributingSignals: [] });
+    expect(long.opened).toBe(true);
+  });
+
+  it("does not apply PAPER_LONG_ONLY outside dry-run", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", PAPER_LONG_ONLY: true }));
+    const short = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "SELL", entryPrice: 200, quantity: 1, decisionScore: -0.5, contributingSignals: [] });
+    expect(short.opened).toBe(true);
   });
 });

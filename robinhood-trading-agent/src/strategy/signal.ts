@@ -5,7 +5,7 @@ import { ema, rsi, macd, bollingerBands, relativeVolume } from "./indicators/ind
 import { RISK_LIMITS } from "../config/riskLimits.js";
 import { DEFAULT_SIGNAL_WEIGHTS, type Decision, type SignalVote, type SignalWeights } from "./types.js";
 
-const DECISION_THRESHOLD = 0.15;
+export const DECISION_THRESHOLD = 0.15;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -100,9 +100,10 @@ function socialChatterVote(chatterScore: number | null): SignalVote | null {
  * chatter signals into one decision. `weights` come from
  * `learning/weightStore` — this function is otherwise pure/deterministic
  * so it's cheap to unit test and to run in the backtest harness against
- * historical bars.
+ * historical bars. `threshold` is the |score| an action must exceed to be
+ * BUY/SELL rather than HOLD.
  */
-export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, socialChatterScore: number | null = null, weights: SignalWeights = DEFAULT_SIGNAL_WEIGHTS): Decision {
+export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, socialChatterScore: number | null = null, weights: SignalWeights = DEFAULT_SIGNAL_WEIGHTS, threshold: number = DECISION_THRESHOLD): Decision {
   const closes = bars.map((b) => b.close);
   const { trend, ema9, ema21 } = trendFromEma(closes);
 
@@ -127,7 +128,7 @@ export function computeSignal(bars: OhlcvBar[], sentimentScore: number | null, s
   const score = weightSum === 0 ? 0 : clamp(contributingSignals.reduce((sum, s) => sum + s.contribution, 0) / weightSum, -1, 1);
   const confidence = Math.abs(score);
 
-  const action = score > DECISION_THRESHOLD ? "BUY" : score < -DECISION_THRESHOLD ? "SELL" : "HOLD";
+  const action = score > threshold ? "BUY" : score < -threshold ? "SELL" : "HOLD";
 
   return { action, confidence, score, contributingSignals };
 }

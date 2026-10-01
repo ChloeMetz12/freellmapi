@@ -18,7 +18,7 @@ import { computeSentiment } from "../sentiment/sentimentEngine.js";
 import { SentimentCache } from "../sentiment/sentimentCache.js";
 import { computeSymbolChatter } from "../social/chatterEngine.js";
 import { ChatterCache } from "../social/chatterCache.js";
-import { computeSignal } from "../strategy/signal.js";
+import { computeSignal, DECISION_THRESHOLD } from "../strategy/signal.js";
 import { computePositionSize } from "../execution/sizing.js";
 import { buildOrderPlan } from "../execution/orderPlan.js";
 import type { AssetClass } from "../config/watchlist.js";
@@ -103,10 +103,12 @@ export class ToolHandlers {
     const sentimentScore = cachedSentiment ? cachedSentiment.result.score : null;
     const cachedChatter = this.chatterCache.get(symbol);
     const chatterScore = cachedChatter ? cachedChatter.score : null;
-    const decision = computeSignal(bars, sentimentScore, chatterScore, this.weightStore.get());
+    const decisionThreshold = this.env.MODE === "dry-run" ? this.env.PAPER_DECISION_THRESHOLD : DECISION_THRESHOLD;
+    const decision = computeSignal(bars, sentimentScore, chatterScore, this.weightStore.get(), decisionThreshold);
     const result = {
       symbol,
       mode: this.env.MODE,
+      decisionThreshold,
       sentimentUsed: cachedSentiment ? { score: cachedSentiment.result.score, computedAt: cachedSentiment.computedAt, degraded: cachedSentiment.result.degraded } : null,
       chatterUsed: cachedChatter ? { score: cachedChatter.score, messageCount: cachedChatter.messageCount, degraded: cachedChatter.degraded } : null,
       ...decision,
@@ -172,9 +174,14 @@ export class ToolHandlers {
    * Dry-run's substitute for "a real order was placed and later closed" —
    * see PaperPositionStore's docstring for why dry-run mode needs this at
    * all. Refuses to open a second position for a symbol that already has
-   * one open rather than silently overwriting its cost basis.
+   * one open rather than silently overwriting its cost basis. With
+   * PAPER_LONG_ONLY, a SELL never opens a short — it only closes a long,
+   * via close_paper_position.
    */
   openPaperPosition(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; entryPrice: number; quantity: number; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; openedAt?: string }) {
+    if (input.action === "SELL" && this.env.MODE === "dry-run" && this.env.PAPER_LONG_ONLY) {
+      return { opened: false, reason: "paper trading is long-only (PAPER_LONG_ONLY=true) — SELL closes an open long but does not open a short" };
+    }
     const existing = this.paperPositions.get(input.symbol);
     if (existing) {
       return { opened: false, reason: "a paper position is already open for this symbol — close it before opening another", position: existing };
