@@ -46,6 +46,9 @@ export const sizeOrderInputSchema = z.object({
   cash: z.number().finite().min(0),
   maxMarginBuyingPower: z.number().finite().min(0).default(0),
   bars: z.array(ohlcvBarSchema).min(1),
+  // Shares/units of this symbol currently held. With LONG_ONLY, a SELL plan
+  // exits exactly this quantity; 0 means there is nothing to sell.
+  heldQuantity: z.number().finite().min(0).default(0),
 });
 
 export const openPaperPositionInputSchema = z.object({

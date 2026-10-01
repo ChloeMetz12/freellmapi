@@ -290,7 +290,11 @@ Built-in decision-engine calls still required each cycle:
       and continue to the next symbol.
    g. **Size:** decision-engine `size_order({ symbol, currentPrice, action,
       confidence, score, contributingSignals, cash, maxMarginBuyingPower,
-      bars })`. If `plan == null`, log and continue.
+      bars, heldQuantity })`. `heldQuantity` = shares/units of this symbol
+      actually held (live: from `get_equity_positions` / crypto holdings;
+      dry-run: 0). The server is long-only by default: a `SELL` plan exits
+      exactly `heldQuantity` and is `null` when nothing is held — never open
+      a short. If `plan == null`, log and continue.
    h. **Execute — mode-gated:**
       - **dry-run / `executeOrder == false`:** log the would-be order
         (`plan.side`, `plan.notionalUsd`, `plan.estimatedShares`,
@@ -300,7 +304,7 @@ Built-in decision-engine calls still required each cycle:
         decision-engine `open_paper_position({ symbol, assetClass, action,
         entryPrice: currentPrice, quantity: plan.estimatedShares,
         decisionScore: score, contributingSignals })` so a later cycle's
-        step e has something to detect and close. With `PAPER_LONG_ONLY`
+        step e has something to detect and close. With `LONG_ONLY`
         (the default), a `SELL` returns `opened: false` — log it as "no
         short opened" and continue; that is expected, not an error.
       - **live / `executeOrder == true`:** present the proposed order to the

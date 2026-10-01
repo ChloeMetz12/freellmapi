@@ -24,8 +24,8 @@ function makeEnv(stateDir: string, overrides: Partial<Env> = {}): Env {
     MARGIN_UTILIZATION_CAP: 0.8,
     MARGIN_ENABLED: true,
     PDT_EQUITY_THRESHOLD_USD: 25_000,
-    PAPER_DECISION_THRESHOLD: 0.15,
-    PAPER_LONG_ONLY: false,
+    DECISION_THRESHOLD: 0.15,
+    LONG_ONLY: false,
     LLM_GATEWAY_URL: "http://localhost:3000/v1",
     SENTIMENT_MODEL: "gpt-4o-mini",
     ...overrides,
@@ -229,27 +229,36 @@ describe("ToolHandlers.checkLiveReadiness", () => {
   });
 });
 
-describe("ToolHandlers paper strictness (PAPER_DECISION_THRESHOLD / PAPER_LONG_ONLY)", () => {
+describe("ToolHandlers strictness (DECISION_THRESHOLD / LONG_ONLY)", () => {
   const closes = Array.from({ length: 30 }, (_, i) => 100 + i);
-
-  it("uses PAPER_DECISION_THRESHOLD in dry-run", () => {
-    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir, { PAPER_DECISION_THRESHOLD: 1 }));
-    const result = handlers.computeDecision("SPY", barsFromCloses(closes));
-    expect(result.decisionThreshold).toBe(1);
-    expect(result.action).toBe("HOLD");
+  const sellInput = (heldQuantity?: number) => ({
+    symbol: "AAPL",
+    currentPrice: 100,
+    action: "SELL" as const,
+    confidence: 0.5,
+    score: -0.5,
+    contributingSignals: [],
+    cash: 10_000,
+    maxMarginBuyingPower: 0,
+    bars: barsFromCloses(closes),
+    heldQuantity,
   });
 
-  it("ignores PAPER_DECISION_THRESHOLD in live mode", () => {
-    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", PAPER_DECISION_THRESHOLD: 1 }));
-    const result = handlers.computeDecision("SPY", barsFromCloses(closes));
-    expect(result.decisionThreshold).toBe(0.15);
+  it("applies DECISION_THRESHOLD in both dry-run and live", () => {
+    for (const MODE of ["dry-run", "live"] as const) {
+      dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+      const handlers = new ToolHandlers(makeEnv(dir, { MODE, DECISION_THRESHOLD: 1 }));
+      const result = handlers.computeDecision("SPY", barsFromCloses(closes));
+      expect(result.decisionThreshold).toBe(1);
+      expect(result.action).toBe("HOLD");
+      rmSync(dir, { recursive: true, force: true });
+    }
+    dir = undefined;
   });
 
-  it("refuses to open a paper short when PAPER_LONG_ONLY is on, but still opens longs", () => {
+  it("refuses to open a paper short when LONG_ONLY is on, but still opens longs", () => {
     dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir, { PAPER_LONG_ONLY: true }));
+    const handlers = new ToolHandlers(makeEnv(dir, { LONG_ONLY: true }));
 
     const short = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "SELL", entryPrice: 200, quantity: 1, decisionScore: -0.5, contributingSignals: [] });
     expect(short.opened).toBe(false);
@@ -260,10 +269,28 @@ describe("ToolHandlers paper strictness (PAPER_DECISION_THRESHOLD / PAPER_LONG_O
     expect(long.opened).toBe(true);
   });
 
-  it("does not apply PAPER_LONG_ONLY outside dry-run", () => {
+  it("live + LONG_ONLY: a SELL with nothing held produces no order", () => {
     dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
-    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", PAPER_LONG_ONLY: true }));
-    const short = handlers.openPaperPosition({ symbol: "AAPL", assetClass: "equity", action: "SELL", entryPrice: 200, quantity: 1, decisionScore: -0.5, contributingSignals: [] });
-    expect(short.opened).toBe(true);
+    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", LONG_ONLY: true }));
+    const result = handlers.sizeOrder(sellInput());
+    expect(result.plan).toBeNull();
+    expect(result.executeOrder).toBe(false);
+    expect(result.longOnly?.shortBlocked).toBe(true);
+  });
+
+  it("live + LONG_ONLY: a SELL exits exactly the held quantity, not a confidence-sized amount", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", LONG_ONLY: true }));
+    const result = handlers.sizeOrder(sellInput(3));
+    expect(result.plan).toMatchObject({ side: "SELL", estimatedShares: 3, notionalUsd: 300 });
+    expect(result.executeOrder).toBe(true);
+  });
+
+  it("without LONG_ONLY, SELL sizing is unchanged", () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { MODE: "live", LONG_ONLY: false }));
+    const result = handlers.sizeOrder(sellInput());
+    expect(result.plan?.side).toBe("SELL");
+    expect(result.sizing).not.toBeNull();
   });
 });

@@ -106,7 +106,7 @@ function buildServer(): McpServer {
     "size_order",
     {
       title: "Size a position for a BUY/SELL decision",
-      description: "Given a decision from compute_decision (already confirmed clear by check_safety) plus current account buying power, computes the order size using the confidence- and volatility-scaled sizing formula and returns an order plan for the calling session to actually submit via RobinHood_Trade's place_order tool. Returns plan=null for a HOLD or a zero-size result.",
+      description: "Given a decision from compute_decision (already confirmed clear by check_safety) plus current account buying power, computes the order size using the confidence- and volatility-scaled sizing formula and returns an order plan for the calling session to actually submit via RobinHood_Trade's place_order tool. Returns plan=null for a HOLD or a zero-size result. When the server is long-only (LONG_ONLY, default on), a SELL never opens a short: pass heldQuantity (shares/units currently held) and the plan exits exactly that amount; with heldQuantity 0 the plan is null.",
       inputSchema: sizeOrderInputSchema.shape,
     },
     async (input) => jsonResult(handlers.sizeOrder(input)),

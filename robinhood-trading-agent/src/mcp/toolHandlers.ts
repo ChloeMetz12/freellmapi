@@ -18,7 +18,7 @@ import { computeSentiment } from "../sentiment/sentimentEngine.js";
 import { SentimentCache } from "../sentiment/sentimentCache.js";
 import { computeSymbolChatter } from "../social/chatterEngine.js";
 import { ChatterCache } from "../social/chatterCache.js";
-import { computeSignal, DECISION_THRESHOLD } from "../strategy/signal.js";
+import { computeSignal } from "../strategy/signal.js";
 import { computePositionSize } from "../execution/sizing.js";
 import { buildOrderPlan } from "../execution/orderPlan.js";
 import type { AssetClass } from "../config/watchlist.js";
@@ -103,7 +103,7 @@ export class ToolHandlers {
     const sentimentScore = cachedSentiment ? cachedSentiment.result.score : null;
     const cachedChatter = this.chatterCache.get(symbol);
     const chatterScore = cachedChatter ? cachedChatter.score : null;
-    const decisionThreshold = this.env.MODE === "dry-run" ? this.env.PAPER_DECISION_THRESHOLD : DECISION_THRESHOLD;
+    const decisionThreshold = this.env.DECISION_THRESHOLD;
     const decision = computeSignal(bars, sentimentScore, chatterScore, this.weightStore.get(), decisionThreshold);
     const result = {
       symbol,
@@ -133,10 +133,34 @@ export class ToolHandlers {
     return { halted: result.halted, reason: result.reason };
   }
 
-  sizeOrder(input: { symbol: string; currentPrice: number; action: Action; confidence: number; score: number; contributingSignals: Array<{ key: SignalKey; vote: number; weight: number; detail: string }>; cash: number; maxMarginBuyingPower: number; bars: OhlcvBar[] }) {
+  sizeOrder(input: { symbol: string; currentPrice: number; action: Action; confidence: number; score: number; contributingSignals: Array<{ key: SignalKey; vote: number; weight: number; detail: string }>; cash: number; maxMarginBuyingPower: number; bars: OhlcvBar[]; heldQuantity?: number }) {
     // Same ordering assumption as computeDecision — computePositionSize's
     // ATR call needs oldest-first bars too.
     assertSortedAscending(input.bars);
+
+    if (input.action === "SELL" && this.env.LONG_ONLY) {
+      const heldQuantity = input.heldQuantity ?? 0;
+      const plan =
+        heldQuantity > 0
+          ? {
+              symbol: input.symbol,
+              side: "SELL" as const,
+              notionalUsd: heldQuantity * input.currentPrice,
+              estimatedShares: heldQuantity,
+              rationale: `exit held long (LONG_ONLY) score=${input.score.toFixed(2)} confidence=${input.confidence.toFixed(2)}`,
+            }
+          : null;
+      const result = {
+        sizing: null,
+        plan,
+        executeOrder: plan !== null && this.env.MODE === "live",
+        mode: this.env.MODE,
+        usedDryRunPaperBuyingPower: false,
+        longOnly: { heldQuantity, shortBlocked: plan === null },
+      };
+      this.auditLog.record({ type: "order", symbol: input.symbol, action: input.action, score: input.score, confidence: input.confidence, ...result });
+      return result;
+    }
 
     let cash = input.cash;
     let maxMarginBuyingPower = input.maxMarginBuyingPower;
@@ -175,12 +199,12 @@ export class ToolHandlers {
    * see PaperPositionStore's docstring for why dry-run mode needs this at
    * all. Refuses to open a second position for a symbol that already has
    * one open rather than silently overwriting its cost basis. With
-   * PAPER_LONG_ONLY, a SELL never opens a short — it only closes a long,
-   * via close_paper_position.
+   * LONG_ONLY, a SELL never opens a short — it only closes a long, via
+   * close_paper_position.
    */
   openPaperPosition(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; entryPrice: number; quantity: number; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; openedAt?: string }) {
-    if (input.action === "SELL" && this.env.MODE === "dry-run" && this.env.PAPER_LONG_ONLY) {
-      return { opened: false, reason: "paper trading is long-only (PAPER_LONG_ONLY=true) — SELL closes an open long but does not open a short" };
+    if (input.action === "SELL" && this.env.LONG_ONLY) {
+      return { opened: false, reason: "long-only (LONG_ONLY=true) — SELL closes an open long but does not open a short" };
     }
     const existing = this.paperPositions.get(input.symbol);
     if (existing) {
