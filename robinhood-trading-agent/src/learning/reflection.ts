@@ -26,8 +26,10 @@ export interface ClosedTradeSummary {
   action: "BUY" | "SELL";
   realizedReturnPct: number;
   closedAt: string;
-  /** Account equity as of this trade's close — feeds liveReadiness's drawdown check. Not used by the reflection prompt itself. */
+  /** Account equity as of this trade's close. Informational only — liveReadiness's drawdown uses the trade-return curve, since account equity also moves with holdings the strategy never traded. */
   currentEquity: number;
+  /** When the position was opened; lets check_live_readiness exclude positions opened under earlier rules (READINESS_SINCE). Absent on trades recorded before it existed. */
+  openedAt?: string;
 }
 
 /**

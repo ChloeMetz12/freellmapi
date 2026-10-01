@@ -113,16 +113,22 @@ describe("evaluateLiveReadiness", () => {
     expect(result.ready).toBe(false);
   });
 
-  it("is not ready when the equity curve would have tripped the daily-loss kill-switch", () => {
+  it("is not ready when the return curve would have tripped the daily-loss kill-switch", () => {
     const good = goodTrackRecord();
-    // Inject a deep mid-window dip (>10% off the peak) that fully recovers
-    // by the end — net profitable, but it should have halted along the way.
-    const peak = Math.max(...good.map((t) => t.currentEquity));
-    const withDip = good.map((t, i) => (i === 25 ? { ...t, currentEquity: peak * 0.85 } : t));
+    // One deep mid-window loss (>10% off the curve's peak) — still net
+    // profitable overall, but it should have halted along the way.
+    const withDip = good.map((t, i) => (i === 25 ? { ...t, realizedReturnPct: -0.2 } : t));
     const result = evaluateLiveReadiness(withDip);
     expect(result.checks.netProfitable).toBe(true);
     expect(result.maxDrawdownFraction).toBeGreaterThanOrEqual(0.1);
     expect(result.checks.neverApproachedKillSwitch).toBe(false);
     expect(result.ready).toBe(false);
+  });
+
+  it("ignores account-equity swings the strategy didn't cause", () => {
+    const crashedAccount = goodTrackRecord().map((t, i) => ({ ...t, currentEquity: i < 25 ? 10_000 : 5_000 }));
+    const result = evaluateLiveReadiness(crashedAccount);
+    expect(result.checks.neverApproachedKillSwitch).toBe(true);
+    expect(result.ready).toBe(true);
   });
 });

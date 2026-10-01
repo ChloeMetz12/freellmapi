@@ -9,12 +9,12 @@ export interface LiveReadinessResult {
   cumulativeReturnPct: number;
   maxSingleTradeGainShare: number;
   /**
-   * Largest peak-to-trough decline (as a fraction of the peak) across the
-   * window's equity readings. This is a proxy for "would this ever have
-   * approached the daily-loss kill-switch" — it isn't literally a per-day
-   * figure, since equity is only sampled at trade-close events here, not
-   * continuously. A real intraday spike-and-recover between two trade
-   * closes would not show up in this number.
+   * Largest peak-to-trough decline (as a fraction of the peak) of the
+   * strategy's own return curve, 1 + running sum of realizedReturnPct in
+   * close order — the same basis as cumulativeReturnPct. Not account
+   * equity: that also moves with holdings the strategy never traded. This
+   * treats every trade as full-size, so it overstates a real drawdown
+   * (conservative), and it's only sampled at trade closes.
    */
   maxDrawdownFraction: number;
   checks: {
@@ -76,13 +76,13 @@ export function evaluateLiveReadiness(trades: ClosedTradeSummary[]): LiveReadine
   // here rather than dividing by zero.
   const maxSingleTradeGainShare = totalGains > 0 ? largestSingleGain / totalGains : 0;
 
-  let peak = sorted[0].currentEquity;
+  let curve = 1;
+  let peak = 1;
   let maxDrawdownFraction = 0;
   for (const t of sorted) {
-    peak = Math.max(peak, t.currentEquity);
-    if (peak > 0) {
-      maxDrawdownFraction = Math.max(maxDrawdownFraction, (peak - t.currentEquity) / peak);
-    }
+    curve += t.realizedReturnPct;
+    peak = Math.max(peak, curve);
+    maxDrawdownFraction = Math.max(maxDrawdownFraction, Math.min(1, (peak - curve) / peak));
   }
 
   const checks = {

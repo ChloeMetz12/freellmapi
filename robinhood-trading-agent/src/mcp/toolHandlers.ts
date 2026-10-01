@@ -258,6 +258,7 @@ export class ToolHandlers {
       isDayTrade,
       currentEquity: input.currentEquity,
       closedAt,
+      openedAt: position.openedAt,
     });
 
     this.paperPositions.close(position.symbol);
@@ -266,7 +267,7 @@ export class ToolHandlers {
     return { closed: true, realizedReturnPct, position, ...outcome };
   }
 
-  async recordOutcome(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; realizedReturnPct: number; isDayTrade: boolean; currentEquity: number; closedAt?: string }) {
+  async recordOutcome(input: { symbol: string; assetClass: AssetClass; action: "BUY" | "SELL"; decisionScore: number; contributingSignals: Array<{ key: SignalKey; vote: number }>; realizedReturnPct: number; isDayTrade: boolean; currentEquity: number; closedAt?: string; openedAt?: string }) {
     const closedAt = input.closedAt ?? new Date().toISOString();
     // Use the trade's actual close time for PDT dating, not "now" —
     // record_outcome can be called after midnight or with a delay, and
@@ -293,7 +294,7 @@ export class ToolHandlers {
     this.auditLog.record({ type: "learning_update", symbol: input.symbol, realizedReturnPct: input.realizedReturnPct, adjustments });
 
     this.tradeHistory.append({
-      trade: { symbol: input.symbol, action: input.action, realizedReturnPct: input.realizedReturnPct, closedAt, currentEquity: input.currentEquity },
+      trade: { symbol: input.symbol, action: input.action, realizedReturnPct: input.realizedReturnPct, closedAt, currentEquity: input.currentEquity, ...(input.openedAt ? { openedAt: input.openedAt } : {}) },
       adjustments,
     });
 
@@ -333,8 +334,11 @@ export class ToolHandlers {
    * itself — that decision stays with a human, deliberately (see README).
    */
   checkLiveReadiness() {
-    const trades = this.tradeHistory.all().map((e) => e.trade);
-    return evaluateLiveReadiness(trades);
+    const all = this.tradeHistory.all().map((e) => e.trade);
+    const since = this.env.READINESS_SINCE;
+    // Trades without openedAt predate its recording; fall back to closedAt.
+    const trades = since ? all.filter((t) => new Date(t.openedAt ?? t.closedAt).getTime() >= new Date(since).getTime()) : all;
+    return { ...evaluateLiveReadiness(trades), readinessSince: since ?? null, excludedTradeCount: all.length - trades.length };
   }
 
   /**

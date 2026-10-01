@@ -294,3 +294,22 @@ describe("ToolHandlers strictness (DECISION_THRESHOLD / LONG_ONLY)", () => {
     expect(result.sizing).not.toBeNull();
   });
 });
+
+describe("ToolHandlers.checkLiveReadiness with READINESS_SINCE", () => {
+  it("counts only positions opened at/after READINESS_SINCE, keeping the full history", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tool-handlers-"));
+    const handlers = new ToolHandlers(makeEnv(dir, { READINESS_SINCE: "2026-10-01T18:00:00.000Z" }));
+
+    await handlers.recordOutcome({ symbol: "OLD", assetClass: "equity", action: "BUY", decisionScore: 0.5, contributingSignals: [], realizedReturnPct: -0.05, isDayTrade: false, currentEquity: 10_000, closedAt: "2026-09-30T20:00:00.000Z" });
+    handlers.openPaperPosition({ symbol: "PRE", assetClass: "equity", action: "BUY", entryPrice: 100, quantity: 1, decisionScore: 0.5, contributingSignals: [], openedAt: "2026-10-01T15:00:00.000Z" });
+    await handlers.closePaperPosition({ symbol: "PRE", exitPrice: 90, currentEquity: 10_000, closedAt: "2026-10-02T15:00:00.000Z" });
+    handlers.openPaperPosition({ symbol: "NEW", assetClass: "equity", action: "BUY", entryPrice: 100, quantity: 1, decisionScore: 0.5, contributingSignals: [], openedAt: "2026-10-01T19:00:00.000Z" });
+    await handlers.closePaperPosition({ symbol: "NEW", exitPrice: 110, currentEquity: 10_000, closedAt: "2026-10-02T15:00:00.000Z" });
+
+    const result = handlers.checkLiveReadiness();
+    expect(result.tradeCount).toBe(1);
+    expect(result.cumulativeReturnPct).toBeCloseTo(0.1, 10);
+    expect(result.excludedTradeCount).toBe(2);
+    expect(result.readinessSince).toBe("2026-10-01T18:00:00.000Z");
+  });
+});

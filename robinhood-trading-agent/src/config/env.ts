@@ -26,6 +26,10 @@ const envSchema = z.object({
   // the same rules live trading will use. LONG_ONLY: a SELL only exits
   // shares already held (size_order's heldQuantity), never opens a short.
   DECISION_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
+  // check_live_readiness only counts positions opened at/after this instant,
+  // so a rule change starts a fresh track record without deleting history
+  // (generate_reflection still sees all of it).
+  READINESS_SINCE: z.string().datetime().optional(),
   LONG_ONLY: z
     .enum(["true", "false"])
     .default("true")

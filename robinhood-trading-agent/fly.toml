@@ -21,6 +21,8 @@ primary_region = "iad"
   PDT_EQUITY_THRESHOLD_USD = "25000"
   DECISION_THRESHOLD = "0.30"
   LONG_ONLY = "true"
+  # Fresh live-readiness track record from the strict long-only rollout (v13).
+  READINESS_SINCE = "2026-10-01T18:10:25Z"
   SENTIMENT_MODEL = "openai/gpt-oss-20b"
   # Direct OpenAI-compatible gateway on Groq (FreeLLMAPI stays Mac-local).
   # API key is a Fly secret: LLM_GATEWAY_API_KEY (gsk_…).
